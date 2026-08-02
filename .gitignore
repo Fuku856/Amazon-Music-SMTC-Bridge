@@ -1,0 +1,10 @@
+bin/
+obj/
+build/
+
+# Signing material must never be committed.
+*.pfx
+*.snk
+
+*.user
+.vs/
