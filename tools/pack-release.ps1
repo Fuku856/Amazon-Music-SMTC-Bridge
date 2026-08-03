@@ -19,7 +19,11 @@ param(
     # certificate on every update.
     [string]$PfxPath          = '',
     # Base name of the produced files, e.g. 'AmazonMusic-SMTC-Bridge_v1.0.0'.
-    [string]$OutputName       = 'AmazonMusic-SMTC-Bridge'
+    [string]$OutputName       = 'AmazonMusic-SMTC-Bridge',
+    # Where install.cmd fetches the package from when it is run on its own, i.e.
+    # the release asset URL. Without it the installer only handles a .msix placed
+    # next to itself, which is all a local build can offer.
+    [string]$DownloadUrl      = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -131,7 +135,8 @@ $cer = Join-Path $outDir "$OutputName.cer"
 if ($suppliedCert) {
     $pfx = (Resolve-Path $PfxPath).Path
     $ownPfx = $false
-    Write-Host "certificate thumbprint: $($suppliedCert.Thumbprint)" -ForegroundColor DarkGray
+    $thumbprint = $suppliedCert.Thumbprint
+    Write-Host "certificate thumbprint: $thumbprint" -ForegroundColor DarkGray
     # The .cer is what users import: the public half of whatever signed the package.
     [System.IO.File]::WriteAllBytes($cer, $suppliedCert.Export(
         [System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
@@ -150,7 +155,8 @@ else {
             -NotAfter (Get-Date).AddYears(10) `
             -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
     }
-    Write-Host "certificate thumbprint: $($cert.Thumbprint)" -ForegroundColor DarkGray
+    $thumbprint = $cert.Thumbprint
+    Write-Host "certificate thumbprint: $thumbprint" -ForegroundColor DarkGray
 
     $pfx = Join-Path $outDir 'signing.pfx'
     $ownPfx = $true
@@ -167,7 +173,25 @@ if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
 # The .pfx holds the private key and must not ship.
 if ($ownPfx) { Remove-Item $pfx -Force }
 
+# Ships next to the package, not inside it: it is what users run. The download URL
+# and the signing thumbprint are baked in so the installer alone can fetch the right
+# package and refuse anything else - which is also why it carries the version in its
+# name: a stale copy from an older release must be recognisable as such.
+Write-Host "==> writing installer" -ForegroundColor Cyan
+$installer = Join-Path $outDir "${OutputName}_install.cmd"
+if (-not $DownloadUrl) {
+    Write-Warning "no -DownloadUrl: the installer will only accept a .msix placed next to it"
+}
+$script = [IO.File]::ReadAllText((Join-Path $repo 'pkg\install.cmd'))
+$script = $script.Replace('@MSIX_NAME@', "$OutputName.msix")
+$script = $script.Replace('@MSIX_URL@', $DownloadUrl)
+$script = $script.Replace('@THUMBPRINT@', $thumbprint)
+# A BOM would break the batch half; CRLF is what cmd.exe needs to parse it at all.
+$script = $script -replace "`r`n", "`n" -replace "`n", "`r`n"
+[IO.File]::WriteAllText($installer, $script, (New-Object Text.UTF8Encoding $false))
+
 Write-Host ""
-Write-Host "package : $msix" -ForegroundColor Green
-Write-Host "cert    : $cer" -ForegroundColor Green
-Write-Host "Publish BOTH files; see README for the install steps." -ForegroundColor Yellow
+Write-Host "package   : $msix" -ForegroundColor Green
+Write-Host "cert      : $cer" -ForegroundColor Green
+Write-Host "installer : $installer" -ForegroundColor Green
+Write-Host "The installer alone is enough for users; publish the rest for manual installs." -ForegroundColor Yellow
