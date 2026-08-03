@@ -1,17 +1,17 @@
-name: release
+name: リリース
 
-# Manual only. Two ways to pick the version:
-#   1. create - run from a branch and type the version below (the tag is created for you)
-#   2. select - pick an existing tag in "Use workflow from" and leave the version empty
+# 手動実行のみ。バージョンの指定方法は2通り:
+#   1. 新規作成 - ブランチを選び、下の「バージョン」に入力する（タグは自動で作成される）
+#   2. 既存を選択 - 「Use workflow from」で既存タグを選び、「バージョン」は空のままにする
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, e.g. 1.0.0 (empty = use the selected tag)'
+        description: 'バージョン（例: 1.0.0）。空にすると選択中のタグを使います'
         required: false
         type: string
       prerelease:
-        description: 'Mark the release as a pre-release'
+        description: 'プレリリースとして公開する'
         required: false
         default: false
         type: boolean
@@ -33,7 +33,7 @@ jobs:
           # Tags must be present so an existing one can be reused instead of recreated.
           fetch-depth: 0
 
-      - name: Resolve version
+      - name: バージョンの決定
         id: v
         shell: pwsh
         env:
@@ -44,21 +44,21 @@ jobs:
           $version = "$env:INPUT_VERSION".Trim() -replace '^v', ''
           if (-not $version) {
             if ($env:REF_TYPE -ne 'tag') {
-              throw "No version given. Either type one, or re-run with a tag selected in 'Use workflow from'."
+              throw "バージョンが指定されていません。バージョンを入力するか、「Use workflow from」でタグを選んで再実行してください。"
             }
             $version = $env:REF_NAME -replace '^v', ''
           }
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Version must look like 1.0.0 (got '$version')."
+            throw "バージョンは 1.0.0 の形式で指定してください（入力値: '$version'）。"
           }
 
           $tag = "v$version"
           "version=$version"                  >> $env:GITHUB_OUTPUT
           "tag=$tag"                          >> $env:GITHUB_OUTPUT
           "name=AmazonMusicSmtc-$tag"         >> $env:GITHUB_OUTPUT
-          Write-Host "releasing $tag as AmazonMusicSmtc-$tag.msix"
+          Write-Host "$tag を AmazonMusicSmtc-$tag.msix としてリリースします"
 
-      - name: Reject an already-released tag
+      - name: 既存リリースの確認
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,14 +68,14 @@ jobs:
           # A miss is the expected case; leaving gh's exit code in place would fail the step.
           $LASTEXITCODE = 0
           if ($exists) {
-            throw "Release ${{ steps.v.outputs.tag }} already exists. Bump the version, or delete that release first."
+            throw "リリース ${{ steps.v.outputs.tag }} は既に存在します。バージョンを上げるか、既存のリリースを削除してください。"
           }
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: Build and package
+      - name: ビルドとパッケージング
         shell: pwsh
         env:
           # Optional. Without them the script mints a throwaway self-signed cert,
@@ -93,6 +93,8 @@ jobs:
             [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
             $params.PfxPath      = $pfx
             $params.CertPassword = $env:SIGNING_PFX_PASSWORD
+          } else {
+            Write-Warning "署名用の Secrets が未設定です。使い捨ての自己署名証明書で署名します。"
           }
           try {
             ./tools/pack-release.ps1 @params
@@ -101,7 +103,7 @@ jobs:
             if ($pfx -and (Test-Path $pfx)) { Remove-Item $pfx -Force }
           }
 
-      - name: Write release notes
+      - name: リリースノートの作成
         shell: pwsh
         run: |
           # Literal here-string: nothing in the markdown gets interpreted by PowerShell.
@@ -127,18 +129,18 @@ jobs:
           $notes.Replace('{NAME}', '${{ steps.v.outputs.name }}') |
             Set-Content release-notes.md -Encoding utf8
 
-      - name: Create tag
+      - name: タグの作成
         shell: pwsh
         run: |
           $tag = '${{ steps.v.outputs.tag }}'
           if (git tag --list $tag) {
-            Write-Host "tag $tag already exists - reusing it"
+            Write-Host "タグ $tag は既に存在するため、そのまま使用します"
           } else {
             git tag $tag
             git push origin $tag
           }
 
-      - name: Publish release
+      - name: リリースの公開
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -155,4 +157,4 @@ jobs:
           )
           if ('${{ inputs.prerelease }}' -eq 'true') { $argv += '--prerelease' }
           gh @argv
-          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) { throw "gh release create に失敗しました（終了コード $LASTEXITCODE）" }

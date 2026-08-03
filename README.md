@@ -224,10 +224,16 @@ CDP 方式（既定）:
 
 ### リリース（GitHub Actions）
 
-GitHub の **Actions > release > Run workflow** から手動で実行します。バージョンの指定方法は2通り:
+GitHub の **Actions > リリース > Run workflow** から手動で実行します。バージョンの指定方法は2通り:
 
-- **新規タグを作成**: ブランチを選び、`version` に `1.0.0` と入力（`v1.0.0` タグが作成されます）
-- **既存タグを選択**: 「Use workflow from」で既存タグを選び、`version` は空のまま
+- **新規タグを作成**: ブランチを選び、「バージョン」に `1.0.0` と入力（`v1.0.0` タグが作成されます）
+- **既存タグを選択**: 「Use workflow from」で既存タグを選び、「バージョン」は空のまま
+
+コマンドラインからも実行できます（ワークフロー名ではなくファイル名で指定します）:
+
+```powershell
+gh workflow run release.yml -f version=1.0.0
+```
 
 ワークフローがビルド・署名・パッケージングを行い、`AmazonMusicSmtc-v1.0.0.msix` と
 `AmazonMusicSmtc-v1.0.0.cer` を Release に添付します。
