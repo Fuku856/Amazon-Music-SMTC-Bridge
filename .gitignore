@@ -5,6 +5,7 @@ build/
 # Signing material must never be committed.
 *.pfx
 *.snk
+*.log
 
 *.user
 .vs/
