@@ -80,7 +80,11 @@ Amazon Music の Local Storage  ──> 曲の長さ（ベストエフォート�
 
 ## インストール
 
-Release から `AmazonMusic-SMTC-Bridge_v<バージョン>.msix` と `AmazonMusic-SMTC-Bridge_v<バージョン>.cer` の両方をダウンロードします。
+Release から **`AmazonMusic-SMTC-Bridge_v<バージョン>_install.cmd` だけ**をダウンロードし、ダブルクリックします。パッケージのダウンロード、証明書の信頼登録（管理者の確認画面が 1 回出ます）、インストールが順に実行され、アプリが起動します。
+
+`.msix` を先にダウンロード済みの場合は、同じフォルダーに置けばそちらが使われます（ダウンロードは省略されます）。ただし同じバージョンの `.msix` に限ります。
+
+### 手動でインストールする場合
 
 自己署名のため、先に証明書を信頼する必要があります。**管理者権限の PowerShell** で:
 
@@ -88,11 +92,13 @@ Release から `AmazonMusic-SMTC-Bridge_v<バージョン>.msix` と `AmazonMusi
 Import-Certificate -FilePath .\AmazonMusic-SMTC-Bridge_v1.0.0.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
 ```
 
-続いて通常の PowerShell で:
+続いて**通常の（管理者でない）PowerShell** で:
 
 ```powershell
 Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.0.0.msix
 ```
+
+`.cer` をダブルクリックする方法は避けてください。ウィザードの既定では証明書が現在のユーザー用のストアに入りますが、MSIX の署名検証はローカルコンピューターのストアしか見ないため、インストール時に `0x800B0109`（ルート証明書が信頼されていない）になります。ウィザードを使う場合は「ローカル コンピューター」→「信頼された発行元」を明示的に選んでください。
 
 ## Pano Scrobbler の設定（重要）
 
@@ -236,8 +242,14 @@ GitHub の **Actions > リリース > Run workflow** から手動で実行しま
 gh workflow run release.yml -f version=1.0.0
 ```
 
-ワークフローがビルド・署名・パッケージングを行い、`AmazonMusic-SMTC-Bridge_v1.0.0.msix` と
-`AmazonMusic-SMTC-Bridge_v1.0.0.cer` を Release に添付します。
+ワークフローがビルド・署名・パッケージングを行い、`AmazonMusic-SMTC-Bridge_v1.0.0.msix`、
+`AmazonMusic-SMTC-Bridge_v1.0.0.cer`、`AmazonMusic-SMTC-Bridge_v1.0.0_install.cmd` を
+Release に添付します。
+
+インストーラーは `pkg\install.cmd` を雛形として、そのリリースのパッケージのダウンロード URL・
+ファイル名・署名証明書の thumbprint を埋め込んだものです。埋め込まれた thumbprint と一致しない
+`.msix` はインストールを中止します。**リリースごとに専用のファイル**になるため、ファイル名にも
+バージョンを含めています（生成は `pack-release.ps1` が自動で行います）。
 
 署名には以下の Secrets に登録された固定の証明書（`CN=AmazonMusicSmtc`、有効期限 2036-08-01）を使います:
 

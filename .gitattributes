@@ -1,0 +1,4 @@
+# cmd.exe misparses batch files with LF-only line endings: it starts executing
+# fragments of lines. The installer ships to users as-is, so pin CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf

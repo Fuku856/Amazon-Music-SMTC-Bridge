@@ -87,9 +87,13 @@ jobs:
           SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
           SIGNING_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
         run: |
+          # Asset URLs are deterministic, so the installer can point at a package
+          # that this run has not uploaded yet.
+          $name = '${{ steps.v.outputs.name }}'
           $params = @{
-            Version    = '${{ steps.v.outputs.version }}'
-            OutputName = '${{ steps.v.outputs.name }}'
+            Version     = '${{ steps.v.outputs.version }}'
+            OutputName  = $name
+            DownloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ steps.v.outputs.tag }}/$name.msix"
           }
           $pfx = $null
           if ($env:SIGNING_PFX_BASE64) {
@@ -114,7 +118,12 @@ jobs:
           $notes = @'
           ## インストール
 
-          下の `{NAME}.msix` と `{NAME}.cer` を **両方** ダウンロードしてください。
+          **`{NAME}_install.cmd` だけ**をダウンロードしてダブルクリックしてください。パッケージのダウンロード・証明書の信頼登録・インストールが順に実行されます（途中で管理者の確認画面が 1 回出ます）。
+
+          `.msix` と `.cer` は手動でインストールする場合のみ必要です。
+
+          <details>
+          <summary>手動でインストールする場合</summary>
 
           1. 証明書を信頼する（管理者 PowerShell、初回のみ）
 
@@ -122,11 +131,14 @@ jobs:
              Import-Certificate -FilePath .\{NAME}.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
              ```
 
-          2. パッケージをインストールする
+          2. パッケージをインストールする（通常の PowerShell）
 
              ```powershell
              Add-AppxPackage .\{NAME}.msix
              ```
+
+          `.cer` のダブルクリックでは証明書が現在のユーザー用のストアに入るだけで、インストール時に `0x800B0109` になります。必ず上のコマンド（またはウィザードで「ローカル コンピューター」→「信頼された発行元」）を使ってください。
+          </details>
 
           詳細は README を参照してください。
           '@
@@ -154,6 +166,7 @@ jobs:
             'release', 'create', '${{ steps.v.outputs.tag }}',
             "build/release/$name.msix",
             "build/release/$name.cer",
+            "build/release/${name}_install.cmd",
             '--title',      '${{ steps.v.outputs.tag }}',
             '--notes-file', 'release-notes.md',
             # Install steps first, auto-generated changelog appended underneath.
