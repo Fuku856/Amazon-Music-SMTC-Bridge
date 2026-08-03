@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'バージョン（例: v1.0.0 / 1.0.0）。v は省略すると自動で付きます。空にすると選択中のタグを使います'
+        description: 'バージョン（例: v1.0.0 / 1.0.0）'
         required: false
         type: string
       prerelease:
-        description: 'プレリリースとして公開する'
+        description: 'プレリリースとして公開'
         required: false
         default: false
         type: boolean
@@ -59,8 +59,8 @@ jobs:
           $tag = "v$version"
           "version=$version"                  >> $env:GITHUB_OUTPUT
           "tag=$tag"                          >> $env:GITHUB_OUTPUT
-          "name=AmazonMusicSmtc-$tag"         >> $env:GITHUB_OUTPUT
-          Write-Host "$tag を AmazonMusicSmtc-$tag.msix としてリリースします"
+          "name=Amazon-Music-SMTC-Bridge-$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "$tag を Amazon-Music-SMTC-Bridge-$tag.msix としてリリースします"
 
       - name: 既存リリースの確認
         shell: pwsh

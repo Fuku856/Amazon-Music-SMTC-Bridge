@@ -5,6 +5,12 @@ namespace AmazonMusicSmtc;
 
 internal static class Program
 {
+    /// <summary>
+    /// The app name as users see it. Must match DisplayName in pkg\AppxManifest.xml
+    /// and the base name of the release assets produced by tools\pack-release.ps1.
+    /// </summary>
+    internal const string AppName = "Amazon Music SMTC Bridge";
+
     [STAThread]
     private static void Main()
     {
@@ -62,7 +68,7 @@ internal sealed class BridgeForm : Form
 
     public BridgeForm()
     {
-        Text = "Amazon Music SMTC Bridge";
+        Text = Program.AppName;
         Width = 1000;
         Height = 560;
         // A normal taskbar window: the log can be minimised and restored like
@@ -149,7 +155,7 @@ internal sealed class BridgeForm : Form
         _tray = new NotifyIcon
         {
             Icon = icon,
-            Text = "Amazon Music SMTC Bridge",
+            Text = Program.AppName,
             Visible = true,
             ContextMenuStrip = menu,
         };
