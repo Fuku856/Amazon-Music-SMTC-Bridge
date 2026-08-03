@@ -1,0 +1,158 @@
+name: release
+
+# Manual only. Two ways to pick the version:
+#   1. create - run from a branch and type the version below (the tag is created for you)
+#   2. select - pick an existing tag in "Use workflow from" and leave the version empty
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.0.0 (empty = use the selected tag)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark the release as a pre-release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags must be present so an existing one can be reused instead of recreated.
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: v
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          $version = "$env:INPUT_VERSION".Trim() -replace '^v', ''
+          if (-not $version) {
+            if ($env:REF_TYPE -ne 'tag') {
+              throw "No version given. Either type one, or re-run with a tag selected in 'Use workflow from'."
+            }
+            $version = $env:REF_NAME -replace '^v', ''
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Version must look like 1.0.0 (got '$version')."
+          }
+
+          $tag = "v$version"
+          "version=$version"                  >> $env:GITHUB_OUTPUT
+          "tag=$tag"                          >> $env:GITHUB_OUTPUT
+          "name=AmazonMusicSmtc-$tag"         >> $env:GITHUB_OUTPUT
+          Write-Host "releasing $tag as AmazonMusicSmtc-$tag.msix"
+
+      - name: Reject an already-released tag
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view '${{ steps.v.outputs.tag }}' --json tagName 1>$null 2>$null
+          $exists = ($LASTEXITCODE -eq 0)
+          # A miss is the expected case; leaving gh's exit code in place would fail the step.
+          $LASTEXITCODE = 0
+          if ($exists) {
+            throw "Release ${{ steps.v.outputs.tag }} already exists. Bump the version, or delete that release first."
+          }
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build and package
+        shell: pwsh
+        env:
+          # Optional. Without them the script mints a throwaway self-signed cert,
+          # which means users must trust a different certificate for every release.
+          SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        run: |
+          $params = @{
+            Version    = '${{ steps.v.outputs.version }}'
+            OutputName = '${{ steps.v.outputs.name }}'
+          }
+          $pfx = $null
+          if ($env:SIGNING_PFX_BASE64) {
+            $pfx = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+            $params.PfxPath      = $pfx
+            $params.CertPassword = $env:SIGNING_PFX_PASSWORD
+          }
+          try {
+            ./tools/pack-release.ps1 @params
+          }
+          finally {
+            if ($pfx -and (Test-Path $pfx)) { Remove-Item $pfx -Force }
+          }
+
+      - name: Write release notes
+        shell: pwsh
+        run: |
+          # Literal here-string: nothing in the markdown gets interpreted by PowerShell.
+          $notes = @'
+          ## インストール
+
+          下の `{NAME}.msix` と `{NAME}.cer` を **両方** ダウンロードしてください。
+
+          1. 証明書を信頼する（管理者 PowerShell、初回のみ）
+
+             ```powershell
+             Import-Certificate -FilePath .\{NAME}.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+             ```
+
+          2. パッケージをインストールする
+
+             ```powershell
+             Add-AppxPackage .\{NAME}.msix
+             ```
+
+          詳細は README を参照してください。
+          '@
+          $notes.Replace('{NAME}', '${{ steps.v.outputs.name }}') |
+            Set-Content release-notes.md -Encoding utf8
+
+      - name: Create tag
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.v.outputs.tag }}'
+          if (git tag --list $tag) {
+            Write-Host "tag $tag already exists - reusing it"
+          } else {
+            git tag $tag
+            git push origin $tag
+          }
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $name = '${{ steps.v.outputs.name }}'
+          $argv = @(
+            'release', 'create', '${{ steps.v.outputs.tag }}',
+            "build/release/$name.msix",
+            "build/release/$name.cer",
+            '--title',      '${{ steps.v.outputs.tag }}',
+            '--notes-file', 'release-notes.md',
+            # Install steps first, auto-generated changelog appended underneath.
+            '--generate-notes'
+          )
+          if ('${{ inputs.prerelease }}' -eq 'true') { $argv += '--prerelease' }
+          gh @argv
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }

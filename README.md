@@ -80,18 +80,18 @@ Amazon Music の Local Storage  ──> 曲の長さ（ベストエフォート�
 
 ## インストール
 
-Release から `AmazonMusicSmtc.msix` と `AmazonMusicSmtc.cer` の両方をダウンロードします。
+Release から `AmazonMusicSmtc-v<バージョン>.msix` と `AmazonMusicSmtc-v<バージョン>.cer` の両方をダウンロードします。
 
 自己署名のため、先に証明書を信頼する必要があります。**管理者権限の PowerShell** で:
 
 ```powershell
-Import-Certificate -FilePath .\AmazonMusicSmtc.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+Import-Certificate -FilePath .\AmazonMusicSmtc-v1.0.0.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
 ```
 
 続いて通常の PowerShell で:
 
 ```powershell
-Add-AppxPackage .\AmazonMusicSmtc.msix
+Add-AppxPackage .\AmazonMusicSmtc-v1.0.0.msix
 ```
 
 ## Pano Scrobbler の設定（重要）
@@ -219,7 +219,35 @@ CDP 方式（既定）:
 配布用の署名済みパッケージ:
 
 ```powershell
-.\tools\pack-release.ps1
+.\tools\pack-release.ps1 -Version 1.0.0 -OutputName AmazonMusicSmtc-v1.0.0
+```
+
+### リリース（GitHub Actions）
+
+GitHub の **Actions > release > Run workflow** から手動で実行します。バージョンの指定方法は2通り:
+
+- **新規タグを作成**: ブランチを選び、`version` に `1.0.0` と入力（`v1.0.0` タグが作成されます）
+- **既存タグを選択**: 「Use workflow from」で既存タグを選び、`version` は空のまま
+
+ワークフローがビルド・署名・パッケージングを行い、`AmazonMusicSmtc-v1.0.0.msix` と
+`AmazonMusicSmtc-v1.0.0.cer` を Release に添付します。
+
+署名には以下の Secrets に登録された固定の証明書（`CN=AmazonMusicSmtc`、有効期限 2036-08-01）を使います:
+
+- `SIGNING_PFX_BASE64` — `.pfx` を Base64 にしたもの
+- `SIGNING_PFX_PASSWORD` — その `.pfx` のパスワード
+
+これらが未設定だと実行のたびに新しい自己署名証明書が作られ、ユーザーは更新のたびに別の証明書を
+信頼し直すことになります。証明書を差し替える場合は両方をまとめて更新してください:
+
+```powershell
+$pw  = '<新しいパスワード>'
+$pfx = "$env:TEMP\signing.pfx"
+Export-PfxCertificate -Cert Cert:\CurrentUser\My\<thumbprint> -FilePath $pfx `
+  -Password (ConvertTo-SecureString $pw -Force -AsPlainText)
+gh secret set SIGNING_PFX_BASE64   --body ([Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx)))
+gh secret set SIGNING_PFX_PASSWORD --body $pw
+Remove-Item $pfx
 ```
 
 SMTC の中身を確認する検証スクリプト:
