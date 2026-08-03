@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'バージョン（例: 1.0.0）。空にすると選択中のタグを使います'
+        description: 'バージョン（例: v1.0.0 / 1.0.0）。v は省略すると自動で付きます。空にすると選択中のタグを使います'
         required: false
         type: string
       prerelease:
@@ -41,15 +41,19 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |
-          $version = "$env:INPUT_VERSION".Trim() -replace '^v', ''
+          # The tag is always v-prefixed, so both "v1.0.0" and "1.0.0" are accepted
+          # and normalised to the same thing.
+          $raw     = "$env:INPUT_VERSION".Trim()
+          $version = $raw -replace '^v', ''
           if (-not $version) {
             if ($env:REF_TYPE -ne 'tag') {
               throw "バージョンが指定されていません。バージョンを入力するか、「Use workflow from」でタグを選んで再実行してください。"
             }
-            $version = $env:REF_NAME -replace '^v', ''
+            $raw     = $env:REF_NAME
+            $version = $raw -replace '^v', ''
           }
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "バージョンは 1.0.0 の形式で指定してください（入力値: '$version'）。"
+            throw "バージョンは v1.0.0 または 1.0.0 の形式で指定してください（入力値: '$raw'）。"
           }
 
           $tag = "v$version"
