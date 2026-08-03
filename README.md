@@ -80,18 +80,18 @@ Amazon Music の Local Storage  ──> 曲の長さ（ベストエフォート�
 
 ## インストール
 
-Release から `Amazon-Music-SMTC-Bridge-v<バージョン>.msix` と `Amazon-Music-SMTC-Bridge-v<バージョン>.cer` の両方をダウンロードします。
+Release から `AmazonMusic-SMTC-Bridge_v<バージョン>.msix` と `AmazonMusic-SMTC-Bridge_v<バージョン>.cer` の両方をダウンロードします。
 
 自己署名のため、先に証明書を信頼する必要があります。**管理者権限の PowerShell** で:
 
 ```powershell
-Import-Certificate -FilePath .\Amazon-Music-SMTC-Bridge-v1.0.0.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+Import-Certificate -FilePath .\AmazonMusic-SMTC-Bridge_v1.0.0.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
 ```
 
 続いて通常の PowerShell で:
 
 ```powershell
-Add-AppxPackage .\Amazon-Music-SMTC-Bridge-v1.0.0.msix
+Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.0.0.msix
 ```
 
 ## Pano Scrobbler の設定（重要）
@@ -219,7 +219,7 @@ CDP 方式（既定）:
 配布用の署名済みパッケージ:
 
 ```powershell
-.\tools\pack-release.ps1 -Version 1.0.0 -OutputName Amazon-Music-SMTC-Bridge-v1.0.0
+.\tools\pack-release.ps1 -Version 1.0.0 -OutputName AmazonMusic-SMTC-Bridge_v1.0.0
 ```
 
 ### リリース（GitHub Actions）
@@ -236,8 +236,8 @@ GitHub の **Actions > リリース > Run workflow** から手動で実行しま
 gh workflow run release.yml -f version=1.0.0
 ```
 
-ワークフローがビルド・署名・パッケージングを行い、`Amazon-Music-SMTC-Bridge-v1.0.0.msix` と
-`Amazon-Music-SMTC-Bridge-v1.0.0.cer` を Release に添付します。
+ワークフローがビルド・署名・パッケージングを行い、`AmazonMusic-SMTC-Bridge_v1.0.0.msix` と
+`AmazonMusic-SMTC-Bridge_v1.0.0.cer` を Release に添付します。
 
 署名には以下の Secrets に登録された固定の証明書（`CN=AmazonMusicSmtc`、有効期限 2036-08-01）を使います:
 

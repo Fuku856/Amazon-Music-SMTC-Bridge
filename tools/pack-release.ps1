@@ -18,8 +18,8 @@ param(
     # the same identity - a fresh self-signed cert would force users to trust a new
     # certificate on every update.
     [string]$PfxPath          = '',
-    # Base name of the produced files, e.g. 'Amazon-Music-SMTC-Bridge-v1.0.0'.
-    [string]$OutputName       = 'Amazon-Music-SMTC-Bridge'
+    # Base name of the produced files, e.g. 'AmazonMusic-SMTC-Bridge_v1.0.0'.
+    [string]$OutputName       = 'AmazonMusic-SMTC-Bridge'
 )
 
 $ErrorActionPreference = 'Stop'

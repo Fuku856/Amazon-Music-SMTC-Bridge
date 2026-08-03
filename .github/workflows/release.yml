@@ -59,8 +59,8 @@ jobs:
           $tag = "v$version"
           "version=$version"                  >> $env:GITHUB_OUTPUT
           "tag=$tag"                          >> $env:GITHUB_OUTPUT
-          "name=Amazon-Music-SMTC-Bridge-$tag" >> $env:GITHUB_OUTPUT
-          Write-Host "$tag を Amazon-Music-SMTC-Bridge-$tag.msix としてリリースします"
+          "name=AmazonMusic-SMTC-Bridge_$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "$tag を AmazonMusic-SMTC-Bridge_$tag.msix としてリリースします"
 
       - name: 既存リリースの確認
         shell: pwsh

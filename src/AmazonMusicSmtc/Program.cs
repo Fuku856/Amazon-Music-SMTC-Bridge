@@ -6,8 +6,8 @@ namespace AmazonMusicSmtc;
 internal static class Program
 {
     /// <summary>
-    /// The app name as users see it. Must match DisplayName in pkg\AppxManifest.xml
-    /// and the base name of the release assets produced by tools\pack-release.ps1.
+    /// The app name as users see it. Must match DisplayName in pkg\AppxManifest.xml.
+    /// Release assets use the same name without spaces - see tools\pack-release.ps1.
     /// </summary>
     internal const string AppName = "Amazon Music SMTC Bridge";
 
@@ -100,7 +100,7 @@ internal sealed class BridgeForm : Form
             SourceItem(MetadataSource.Cdp, "デバッグポートのみ",
                 "通知を一切使いません。通知へのアクセス許可も要求しません。"),
             SourceItem(MetadataSource.Notification, "通知のみ",
-                "Amazon Music を再起動せず、デバッグポートも開きません。Amazon Music にフォーカスがある間は曲が更新されません。"),
+                "Amazon Music を再起動せず、デバッグポートも開きません。Amazon Music にフォーカス中は曲情報が更新されません。"),
         ];
 
         var sourceMenu = new ToolStripMenuItem("曲情報の取得方式");
@@ -111,7 +111,7 @@ internal sealed class BridgeForm : Form
 
         var relaunchItem = Toggle(
             "常にデバッグポート付きで動かす",
-            "デバッグポート無しで動いている Amazon Music を見つけたら起動し直します。自分で起動した場合も対象です。",
+            "デバッグポート無しで動いている Amazon Music を見つけたら起動し直します。手動起動した場合も対象です。",
             _settings.AutoRelaunchAmazonMusic,
             value =>
             {
@@ -123,8 +123,8 @@ internal sealed class BridgeForm : Form
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add(Toggle(
-            "読み取った通知を非表示",
-            "Amazon Music の曲変更通知は、消さないと通知センターに溜まり続けます。",
+            "Amazon Music の曲変更通知を非表示",
+            "Amazon Music の曲変更通知を非表示にして、通知センターにも表示しない。",
             _settings.RemoveNotificationsAfterProcessing,
             value =>
             {
@@ -135,7 +135,7 @@ internal sealed class BridgeForm : Form
 
         menu.Items.Add(Toggle(
             "ジャケットをオフライン用に保存",
-            "取得したジャケットをディスクに残し、接続が無いときも表示できるようにします。",
+            "取得したジャケットを保存し、接続が無いときも表示できるようにします。",
             _settings.KeepArtworkCache,
             value =>
             {
