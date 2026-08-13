@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'バージョン（例: v1.0.0 / 1.0.0）'
+        description: 'バージョン（例: v1.0.0 / 1.0.0 / v1.2.0-beta1）'
         required: false
         type: string
       prerelease:
@@ -38,6 +38,7 @@ jobs:
         shell: pwsh
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |
@@ -52,15 +53,43 @@ jobs:
             $raw     = $env:REF_NAME
             $version = $raw -replace '^v', ''
           }
-          if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "バージョンは v1.0.0 または 1.0.0 の形式で指定してください（入力値: '$raw'）。"
+          # A SemVer pre-release suffix is allowed on the tag but cannot reach the
+          # package: MSIX Identity/Version is four numeric parts and nothing else.
+          if ($version -notmatch '^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.]+))?$') {
+            throw "バージョンは v1.0.0 / 1.0.0、プレリリースなら v1.2.0-beta1 の形式で指定してください（入力値: '$raw'）。"
+          }
+          $base = $Matches[1]
+          $pre  = $Matches[2]
+
+          if ($pre) {
+            # The suffix's trailing number becomes the package revision, so beta1 and
+            # beta2 pack as 1.2.0.1 and 1.2.0.2. Without it both would be 1.2.0.0 and
+            # the second install would fail with 0x80073CFB (same version, other bits).
+            if ($pre -notmatch '(\d+)$') {
+              throw "プレリリース識別子は末尾に番号が必要です（例: v$base-beta1）。入力値: '$raw'"
+            }
+            $revision = [int]$Matches[1]
+            if ($revision -lt 1 -or $revision -gt 65535) {
+              throw "プレリリースの番号は 1〜65535 で指定してください（入力値: '$raw'）。"
+            }
+            $tag = "v$base-$pre"
+          }
+          else {
+            # Reserved for the final release, which therefore sorts *below* its own
+            # betas. install.cmd retries with -ForceUpdateFromAnyVersion, so that
+            # downgrade is handled; a manual Add-AppxPackage needs the switch itself.
+            $revision = 0
+            $tag = "v$base"
           }
 
-          $tag = "v$version"
-          "version=$version"                  >> $env:GITHUB_OUTPUT
-          "tag=$tag"                          >> $env:GITHUB_OUTPUT
-          "name=AmazonMusic-SMTC-Bridge_$tag" >> $env:GITHUB_OUTPUT
-          Write-Host "$tag を AmazonMusic-SMTC-Bridge_$tag.msix としてリリースします"
+          # A pre-release tag is published as a pre-release whatever the checkbox says.
+          $prerelease = $pre -or $env:INPUT_PRERELEASE -eq 'true'
+
+          "version=$base.$revision"                        >> $env:GITHUB_OUTPUT
+          "tag=$tag"                                       >> $env:GITHUB_OUTPUT
+          "name=AmazonMusic-SMTC-Bridge_$tag"              >> $env:GITHUB_OUTPUT
+          "prerelease=$($prerelease.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          Write-Host "$tag を AmazonMusic-SMTC-Bridge_$tag.msix（パッケージ版数 $base.$revision）としてリリースします"
 
       - name: 既存リリースの確認
         shell: pwsh
@@ -172,6 +201,6 @@ jobs:
             # Install steps first, auto-generated changelog appended underneath.
             '--generate-notes'
           )
-          if ('${{ inputs.prerelease }}' -eq 'true') { $argv += '--prerelease' }
+          if ('${{ steps.v.outputs.prerelease }}' -eq 'true') { $argv += '--prerelease' }
           gh @argv
           if ($LASTEXITCODE -ne 0) { throw "gh release create に失敗しました（終了コード $LASTEXITCODE）" }

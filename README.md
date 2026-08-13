@@ -272,6 +272,32 @@ gh workflow run release.yml -f version=1.0.0
 `AmazonMusic-SMTC-Bridge_v1.0.0.cer`、`AmazonMusic-SMTC-Bridge_v1.0.0_install.cmd` を
 Release に添付します。
 
+#### プレリリース（beta）
+
+`v1.2.0-beta1` のようにプレリリース識別子を付けられます。この形式で指定したものは
+「プレリリースとして公開」チェックの有無にかかわらず、必ずプレリリースとして公開されます。
+
+MSIX の `Identity/Version` は **4部構成の数値のみ**で、`-beta1` のような文字列を持てません。
+そのため識別子**末尾の番号がパッケージのリビジョンになります**。番号は必須です
+（`-beta` のように番号が無いとエラーになります）。番号が無いと beta1 と beta2 が
+同じパッケージ版数になり、2 つ目のインストールが `0x80073CFB`（同一バージョンは置換不可）で
+失敗するためです。
+
+| 入力 | タグ・資産名 | パッケージ版数 |
+|---|---|---|
+| `v1.2.0-beta1` | `v1.2.0-beta1` | `1.2.0.1` |
+| `v1.2.0-beta2` | `v1.2.0-beta2` | `1.2.0.2` |
+| `v1.2.0` | `v1.2.0` | `1.2.0.0` |
+
+> **beta から最終版へ更新する場合**
+> 最終版のリビジョンは `0` なので、beta より数値としては小さくなります。
+> `install.cmd` は `-ForceUpdateFromAnyVersion` で自動的に再試行するため
+> そのまま更新できますが、**手動で `Add-AppxPackage` する場合は同スイッチが必要**です。
+>
+> ```powershell
+> Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.2.0.msix -ForceUpdateFromAnyVersion
+> ```
+
 インストーラーは `pkg\install.cmd` を雛形として、そのリリースのパッケージのダウンロード URL・
 ファイル名・署名証明書の thumbprint を埋め込んだものです。埋め込まれた thumbprint と一致しない
 `.msix` はインストールを中止します。**リリースごとに専用のファイル**になるため、ファイル名にも
