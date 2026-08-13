@@ -49,7 +49,7 @@ $MsixUrl    = '@MSIX_URL@'
 $Thumbprint = '@THUMBPRINT@'
 
 $here     = $args[0]
-$appName  = 'Amazon Music SMTC Bridge'
+$appName  = 'AmazonMusic SMTC Bridge'
 $pkgName  = 'AmazonMusicSmtc'
 $download = $null
 
