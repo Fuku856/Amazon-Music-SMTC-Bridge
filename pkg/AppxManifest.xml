@@ -16,7 +16,11 @@
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>Amazon Music SMTC Bridge</DisplayName>
+    <!-- Deliberately spelled "AmazonMusic" without a space: tools that filter media
+         sessions by app-name substring (e.g. FluentFlyout's app filtering) would
+         otherwise match a "Amazon Music" block rule against this bridge as well.
+         This DisplayName is what shell:AppsFolder reports for our AUMID. -->
+    <DisplayName>AmazonMusic SMTC Bridge</DisplayName>
     <PublisherDisplayName>AmazonMusicSmtc</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -43,7 +47,7 @@
   <Applications>
     <Application Id="App" Executable="AmazonMusicSmtc.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="Amazon Music SMTC Bridge"
+        DisplayName="AmazonMusic SMTC Bridge"
         Description="Publishes complete SMTC metadata for Amazon Music"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
@@ -58,7 +62,7 @@
           <uap5:StartupTask
             TaskId="AmazonMusicSmtcStartup"
             Enabled="true"
-            DisplayName="Amazon Music SMTC Bridge" />
+            DisplayName="AmazonMusic SMTC Bridge" />
         </uap5:Extension>
       </Extensions>
     </Application>

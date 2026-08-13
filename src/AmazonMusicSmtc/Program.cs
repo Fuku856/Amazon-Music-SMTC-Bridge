@@ -8,8 +8,10 @@ internal static class Program
     /// <summary>
     /// The app name as users see it. Must match DisplayName in pkg\AppxManifest.xml.
     /// Release assets use the same name without spaces - see tools\pack-release.ps1.
+    /// "AmazonMusic" is one word on purpose so that media tools filtering by app-name
+    /// substring do not match an "Amazon Music" rule against this bridge.
     /// </summary>
-    internal const string AppName = "Amazon Music SMTC Bridge";
+    internal const string AppName = "AmazonMusic SMTC Bridge";
 
     [STAThread]
     private static void Main()

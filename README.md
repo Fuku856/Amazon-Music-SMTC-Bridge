@@ -1,4 +1,4 @@
-# Amazon Music SMTC Bridge
+# AmazonMusic SMTC Bridge
 
 Windows 版 Amazon Music は SMTC (System Media Transport Controls) に一部の情報しか渡さないため、
 [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) のような SMTC ベースの
@@ -100,14 +100,40 @@ Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.0.0.msix
 
 `.cer` をダブルクリックする方法は避けてください。ウィザードの既定では証明書が現在のユーザー用のストアに入りますが、MSIX の署名検証はローカルコンピューターのストアしか見ないため、インストール時に `0x800B0109`（ルート証明書が信頼されていない）になります。ウィザードを使う場合は「ローカル コンピューター」→「信頼された発行元」を明示的に選んでください。
 
-## Pano Scrobbler の設定（重要）
+## 他のメディアアプリとの併用（重要）
 
-インストール後は SMTC セッションが**2つ**並びます。何もしないと二重スクロブルになります。
+インストール後は SMTC セッションが**2つ**並びます。Amazon Music 本体のセッションは
+中身が空のままなので、SMTC を読むツール側では
+**Amazon Music 本体を無効化／ブロックし、本ブリッジを有効化**してください。
+
+### Pano Scrobbler
+
+何もしないと二重スクロブルになります。
 
 1. Pano Scrobbler のアプリ一覧で **Amazon Music を無効化**
-2. **Amazon Music SMTC Bridge を有効化**
+2. **AmazonMusic SMTC Bridge を有効化**
 
 Pano Scrobbler は未知のアプリを検出すると通知を出すので、そこから有効化できます。
+
+### FluentFlyout
+
+「アプリのフィルタリング」で Amazon Music 本体をブロックしないと、空のセッションが
+フライアウトやタスクバーウィジェットに出てしまいます。ブロックリストに追加する文字列は、
+一覧から選べる `Amazon Music` ではなく **`AmazonMobileLLC` を手入力**するのが確実です。
+
+FluentFlyout の判定はアプリ名と AUMID の**部分一致**（`IsSessionAllowed`）です。
+`AmazonMobileLLC` は Amazon Music 本体の AUMID
+`AmazonMobileLLC.AmazonMusic_...!AmazonMobileLLC.AmazonMusic` にだけ一致し、
+本ブリッジ（`AmazonMusicSmtc_...!App` ／ 表示名 `AmazonMusic SMTC Bridge`）には一致しません。
+
+> **v1.1.0 以前を使っている場合**
+> 旧バージョンの表示名は `Amazon Music SMTC Bridge` でした。FluentFlyout v2.14.0 は
+> セッション名を `shell:AppsFolder` から解決するようになった（Firefox 系ブラウザ対応の
+> 副作用）ため、ブロックリストの `Amazon Music` がブリッジ側にも一致してしまい、
+> ウィジェットから消えます。本アプリを v1.2.0 以降に更新するか、
+> ブロックリストを上記の `AmazonMobileLLC` に書き換えてください。
+> なお FluentFlyout はアプリ名を静的にキャッシュするため、
+> どちらの対処でも **FluentFlyout の再起動が必要**です。
 
 ## 設定
 
