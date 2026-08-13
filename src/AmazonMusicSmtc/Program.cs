@@ -44,10 +44,18 @@ internal static class Program
 /// </summary>
 internal sealed class BridgeForm : Form
 {
+    /// <summary>
+    /// How long a manual restart is given before the process watcher is allowed to
+    /// call Amazon Music gone. Covers the measured ~13s replacement with room to
+    /// spare, while bounding how long stale metadata can survive a failed attempt.
+    /// </summary>
+    private static readonly TimeSpan ManualRelaunchGrace = TimeSpan.FromSeconds(45);
+
     private readonly TextBox _log;
     private readonly NotifyIcon _tray;
     private readonly Settings _settings;
     private readonly ToolStripMenuItem[] _sourceItems;
+    private readonly AmazonProcessWatcher _processes;
 
     private AmazonSessionWatcher _amazon = null!;
     private ArtworkProvider _artwork = null!;
@@ -90,6 +98,11 @@ internal sealed class BridgeForm : Form
         Controls.Add(_log);
 
         _settings = Settings.Load();
+
+        // Built here rather than in InitializeAsync so PublishTrack can never see a
+        // null gate. It reports "not running" until the first poll, which is the
+        // safe direction to be wrong in.
+        _processes = new AmazonProcessWatcher(Write, PostToUi);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("ログを表示", null, (_, _) => ShowLog());
@@ -286,6 +299,12 @@ internal sealed class BridgeForm : Form
             _publisher.ButtonPressed += OnButtonPressed;
             Write("SMTC session created");
 
+            // Armed before any metadata source starts. The notification listener
+            // replays the newest toast from the Action Center on start-up, and that
+            // toast can belong to an Amazon Music run that has already ended.
+            _processes.RunningChanged += OnAmazonRunningChanged;
+            _processes.Poll();
+
             _amazon = new AmazonSessionWatcher(Write);
             _amazon.PlaybackStatusChanged += OnAmazonPlaybackStatusChanged;
             await _amazon.StartAsync();
@@ -302,6 +321,7 @@ internal sealed class BridgeForm : Form
             }
 
             _monitor = new AmazonMusicMonitor(Write) { Port = _settings.RemoteDebuggingPort };
+            _monitor.Relaunching += window => _processes.SuppressExitFor(window);
 
             Write($"metadata source: {_settings.MetadataSource}, debug port {_settings.RemoteDebuggingPort}");
             ApplySourceSetting();
@@ -382,11 +402,16 @@ internal sealed class BridgeForm : Form
 
     private async Task OnMonitorTickAsync()
     {
-        if (!UsesCdp || _cdp is null)
-            return;
-
         try
         {
+            // The process gate applies in every metadata source mode, so it runs
+            // ahead of the CDP-only work below. This only detects Amazon Music
+            // starting; an exit arrives from Process.Exited within a moment.
+            _processes.Poll();
+
+            if (!UsesCdp || _cdp is null)
+                return;
+
             _monitor.Tick(_cdp.IsConnected);
 
             if (!_cdp.IsConnected)
@@ -396,6 +421,65 @@ internal sealed class BridgeForm : Form
         {
             Write($"monitor tick failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Marshals a watcher callback onto the UI thread, dropping it if the form has
+    /// gone away underneath it.
+    /// </summary>
+    private void PostToUi(Action action)
+    {
+        if (IsDisposed || !IsHandleCreated)
+            return;
+
+        try
+        {
+            BeginInvoke(action);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Shutting down.
+        }
+        catch (InvalidOperationException)
+        {
+            // The handle went away between the check and the call.
+        }
+    }
+
+    private void OnAmazonRunningChanged(bool running)
+    {
+        if (running)
+            return;
+
+        // Whatever the session is showing belongs to a process that no longer
+        // exists. The CDP socket died with it, so drop that too rather than waiting
+        // for the next poll to notice.
+        _cdp?.Disconnect();
+        ClearSession("Amazon Music is not running");
+    }
+
+    /// <summary>
+    /// The one way the bridge's SMTC session comes down. Idempotent, and silent when
+    /// it is already down.
+    /// </summary>
+    private void ClearSession(string reason)
+    {
+        // Dropped either way, so that whatever comes back is republished in full and
+        // the position clock is re-anchored rather than resumed mid-track.
+        _currentTrack = null;
+
+        // Amazon Music's own session goes away during a relaunch as surely as it
+        // does when the user quits, and this path is reached for both. Holding here
+        // is what keeps media widgets from blinking through a restart the bridge
+        // asked for itself.
+        if (_processes.IsRelaunching)
+            return;
+
+        if (_publisher is not { IsEnabled: true })
+            return;
+
+        _publisher.Clear();
+        Write($"SMTC session cleared ({reason})");
     }
 
     /// <summary>
@@ -434,6 +518,10 @@ internal sealed class BridgeForm : Form
         _monitor.Reset();
         _cdp?.Disconnect();
 
+        // Opened here, on the UI thread, before the kill is dispatched: this is the
+        // bridge's own doing, not the user quitting Amazon Music.
+        _processes.SuppressExitFor(ManualRelaunchGrace);
+
         Task.Run(() => AmazonLauncher.Relaunch(_settings.RemoteDebuggingPort, Write));
     }
 
@@ -445,6 +533,12 @@ internal sealed class BridgeForm : Form
     private void PublishTrack(TrackInfo track, bool fromCdp)
     {
         if (_publisher is null)
+            return;
+
+        // A CDP poll still in flight, or a toast replayed out of the Action Center,
+        // must not stand the session back up after Amazon Music has gone. Silent on
+        // purpose: in notification mode a stale toast can arrive repeatedly.
+        if (!_processes.IsRunning)
             return;
 
         if (!fromCdp && _cdp is { IsConnected: true })
@@ -466,6 +560,16 @@ internal sealed class BridgeForm : Form
         try
         {
             await _publisher.UpdateAsync(track);
+
+            // UpdateAsync fetches artwork, so it can take seconds, and its last act
+            // is IsEnabled = true. If Amazon Music died in that window the session
+            // has just come back up behind an earlier Clear().
+            if (!_processes.IsRunning)
+            {
+                ClearSession("Amazon Music exited while the track was being published");
+                return;
+            }
+
             ApplyPlaybackStatus(_amazon.GetPlaybackStatus());
 
             // CDP reports the exact length; the notification path has to go looking.
@@ -490,10 +594,9 @@ internal sealed class BridgeForm : Form
         if (_publisher is null)
             return;
 
-        if (status is null || !_amazon.IsPresent)
+        if (status is null || !_amazon.IsPresent || !_processes.IsRunning)
         {
-            _currentTrack = null;
-            _publisher.Clear();
+            ClearSession("Amazon Music has no media session");
             return;
         }
 
@@ -502,8 +605,11 @@ internal sealed class BridgeForm : Form
             GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing => MediaPlaybackStatus.Playing,
             GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused => MediaPlaybackStatus.Paused,
             GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped => MediaPlaybackStatus.Stopped,
-            GlobalSystemMediaTransportControlsSessionPlaybackStatus.Changing => _publisher.PlaybackStatus,
-            _ => MediaPlaybackStatus.Closed,
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed => MediaPlaybackStatus.Closed,
+            // Changing and Opening are both transient while a track loads. Holding
+            // the current status keeps anything mirroring this session from
+            // blinking on every skip.
+            _ => _publisher.PlaybackStatus,
         };
     }
 
@@ -542,6 +648,8 @@ internal sealed class BridgeForm : Form
         _tray.Visible = false;
         _timelineTimer?.Stop();
         _monitorTimer?.Stop();
+        // First, so no late exit callback can reach a disposed publisher.
+        _processes.Dispose();
         _cdp?.Dispose();
         _publisher?.Dispose();
     }

@@ -42,6 +42,13 @@ internal sealed class AmazonMusicMonitor
     public bool HasGivenUp { get; private set; }
 
     /// <summary>
+    /// Raised immediately before Amazon Music is stopped and started again, with
+    /// the window the attempt is given. The bridge kills the process itself here,
+    /// so the process watcher must not read it as the user quitting.
+    /// </summary>
+    public event Action<TimeSpan>? Relaunching;
+
+    /// <summary>
     /// Drives one step of the state machine. Returns true when Amazon Music was
     /// just relaunched, so the caller knows a reconnect attempt is worth queuing.
     /// </summary>
@@ -85,6 +92,10 @@ internal sealed class AmazonMusicMonitor
         _nextAttemptUtc = now + Cooldown;
 
         _log("Amazon Music is running without a debug port; restarting it");
+
+        // Announced before the kill, not after: the gap this covers starts the
+        // moment Stop() runs.
+        Relaunching?.Invoke(Cooldown);
 
         if (AmazonLauncher.Relaunch(Port, _log))
         {
