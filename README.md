@@ -1,4 +1,4 @@
-# Amazon Music SMTC Bridge
+# AmazonMusic SMTC Bridge
 
 Windows 版 Amazon Music は SMTC (System Media Transport Controls) に一部の情報しか渡さないため、
 [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) のような SMTC ベースの
@@ -100,14 +100,43 @@ Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.0.0.msix
 
 `.cer` をダブルクリックする方法は避けてください。ウィザードの既定では証明書が現在のユーザー用のストアに入りますが、MSIX の署名検証はローカルコンピューターのストアしか見ないため、インストール時に `0x800B0109`（ルート証明書が信頼されていない）になります。ウィザードを使う場合は「ローカル コンピューター」→「信頼された発行元」を明示的に選んでください。
 
-## Pano Scrobbler の設定（重要）
+## 他のメディアアプリとの併用（重要）
 
-インストール後は SMTC セッションが**2つ**並びます。何もしないと二重スクロブルになります。
+インストール後は SMTC セッションが**2つ**並びます。Amazon Music 本体のセッションは
+中身が空のままなので、SMTC を読むツール側では
+**Amazon Music 本体を無効化／ブロックし、本ブリッジを有効化**してください。
+
+### Pano Scrobbler
+
+何もしないと二重スクロブルになります。
 
 1. Pano Scrobbler のアプリ一覧で **Amazon Music を無効化**
-2. **Amazon Music SMTC Bridge を有効化**
+2. **AmazonMusic SMTC Bridge を有効化**
 
 Pano Scrobbler は未知のアプリを検出すると通知を出すので、そこから有効化できます。
+
+### FluentFlyout
+
+「アプリのフィルタリング」で Amazon Music 本体をブロックしないと、空のセッションが
+フライアウトやタスクバーウィジェットに出てしまいます。ブロックリストに追加する文字列は、
+一覧から選べる `Amazon Music` ではなく **`AmazonMobileLLC` を手入力**するのが確実です。
+
+Amazon Music を終了すると、本ブリッジのセッションも 1 秒ほどで消えます（強制終了でも同じです）。
+デバッグポート付きへの入れ替え中だけは例外で、再起動をまたいで表示が維持されます。
+
+FluentFlyout の判定はアプリ名と AUMID の**部分一致**（`IsSessionAllowed`）です。
+`AmazonMobileLLC` は Amazon Music 本体の AUMID
+`AmazonMobileLLC.AmazonMusic_...!AmazonMobileLLC.AmazonMusic` にだけ一致し、
+本ブリッジ（`AmazonMusicSmtc_...!App` ／ 表示名 `AmazonMusic SMTC Bridge`）には一致しません。
+
+> **v1.1.0 以前を使っている場合**
+> 旧バージョンの表示名は `Amazon Music SMTC Bridge` でした。FluentFlyout v2.14.0 は
+> セッション名を `shell:AppsFolder` から解決するようになった（Firefox 系ブラウザ対応の
+> 副作用）ため、ブロックリストの `Amazon Music` がブリッジ側にも一致してしまい、
+> ウィジェットから消えます。本アプリを v1.2.0 以降に更新するか、
+> ブロックリストを上記の `AmazonMobileLLC` に書き換えてください。
+> なお FluentFlyout はアプリ名を静的にキャッシュするため、
+> どちらの対処でも **FluentFlyout の再起動が必要**です。
 
 ## 設定
 
@@ -172,6 +201,11 @@ CDP 方式（既定）:
 
 共通:
 
+- **Amazon Music が動いていない間は何も発行しません。** プロセスの生死をそのまま見ているため、
+  通常終了でも強制終了でもセッションが残りません。デバッグポート付きへの入れ替え中のみ例外で、
+  30〜45 秒の猶予が経過するまで表示を維持します。この猶予は時間で切れるだけなので、
+  入れ替え直後にすぐ Amazon Music を終了した場合、セッションが消えるのは猶予の終了時点です
+  （入れ替えに失敗した場合も同様に、猶予が切れた時点で消えます）
 - **シーク操作は受け付けません。** CDP 方式では再生位置を正確に*表示*できますが、
   スクロバーからのシーク要求を Amazon Music に中継する機能はありません
 - 集中モード（フォーカスアシスト）有効時の挙動は未検証です
@@ -201,6 +235,9 @@ CDP 方式（既定）:
 
 未確認:
 
+- **Amazon Music 終了時にブリッジのセッションが消えること**（通常終了・強制終了・通知のみモード）。
+  実装済みだが実機未検証
+- **入れ替えによる再起動中に表示が維持されること**。実装済みだが実機未検証
 - 署名済み `.msix` のクリーンな環境でのインストール（開発機では登録済みレイアウトで検証）
 - Pano Scrobbler での実際のスクロブル
 - Amazon Music の非 Store 版（exe 版）— パス解決は実装済みだが未実機検証。
@@ -245,6 +282,41 @@ gh workflow run release.yml -f version=1.0.0
 ワークフローがビルド・署名・パッケージングを行い、`AmazonMusic-SMTC-Bridge_v1.0.0.msix`、
 `AmazonMusic-SMTC-Bridge_v1.0.0.cer`、`AmazonMusic-SMTC-Bridge_v1.0.0_install.cmd` を
 Release に添付します。
+
+#### プレリリース（beta）
+
+`v1.2.0-beta1` のようにプレリリース識別子を付けられます。この形式で指定したものは
+「プレリリースとして公開」チェックの有無にかかわらず、必ずプレリリースとして公開されます。
+
+MSIX の `Identity/Version` は **4部構成の数値のみ**で、`-beta1` のような文字列を持てません。
+そのため識別子は**まるごとリビジョン 1 個に畳まれます**。使える識別子は
+**`alpha` / `beta` / `rc` に 1〜9999 の番号を付けたもの**に限られます
+（`-beta` のように番号が無いもの、`-rc.1` のように区切りが入るもの、
+`-preview1` のような未定義の識別子はエラーになります）。
+
+リビジョンは **系列ごとに 1 万番台を割り当て、そこに番号を足したもの**です
+（`alpha` → 1万台、`beta` → 2万台、`rc` → 3万台）。番号だけを使うと
+`-alpha1` と `-beta1` が同じパッケージ版数になり、片方を入れた環境にもう片方を
+インストールすると `0x80073CFB`（同一バージョンは置換不可）で失敗します。
+このエラーは `install.cmd` でも回復できず、アンインストール（＝設定とキャッシュの消失）が
+必要になるため、系列まで含めて版数に反映しています。
+
+| 入力 | タグ・資産名 | パッケージ版数 |
+|---|---|---|
+| `v1.2.0-alpha1` | `v1.2.0-alpha1` | `1.2.0.10001` |
+| `v1.2.0-beta1` | `v1.2.0-beta1` | `1.2.0.20001` |
+| `v1.2.0-beta2` | `v1.2.0-beta2` | `1.2.0.20002` |
+| `v1.2.0-rc1` | `v1.2.0-rc1` | `1.2.0.30001` |
+| `v1.2.0` | `v1.2.0` | `1.2.0.0` |
+
+> **beta から最終版へ更新する場合**
+> 最終版のリビジョンは `0` なので、beta より数値としては小さくなります。
+> `install.cmd` は `-ForceUpdateFromAnyVersion` で自動的に再試行するため
+> そのまま更新できますが、**手動で `Add-AppxPackage` する場合は同スイッチが必要**です。
+>
+> ```powershell
+> Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.2.0.msix -ForceUpdateFromAnyVersion
+> ```
 
 インストーラーは `pkg\install.cmd` を雛形として、そのリリースのパッケージのダウンロード URL・
 ファイル名・署名証明書の thumbprint を埋め込んだものです。埋め込まれた thumbprint と一致しない

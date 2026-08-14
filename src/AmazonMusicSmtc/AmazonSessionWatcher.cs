@@ -17,6 +17,7 @@ internal sealed class AmazonSessionWatcher
     private GlobalSystemMediaTransportControlsSession? _session;
     private string? _boundSessionId;
     private string? _cachedArtist;
+    private bool _reportedGone;
 
     public event Action<GlobalSystemMediaTransportControlsSessionPlaybackStatus?>? PlaybackStatusChanged;
 
@@ -62,11 +63,20 @@ internal sealed class AmazonSessionWatcher
         if (found is null)
         {
             _cachedArtist = null;
+
+            // SessionsChanged fires for every media app on the machine, and with no
+            // Amazon session bound this branch is reached on every one of them.
+            // Once the absence has been reported there is nothing new to say.
+            if (previous is null && _reportedGone)
+                return;
+
+            _reportedGone = true;
             _log("Amazon Music session gone");
             PlaybackStatusChanged?.Invoke(null);
             return;
         }
 
+        _reportedGone = false;
         found.PlaybackInfoChanged += OnPlaybackInfoChanged;
         found.MediaPropertiesChanged += OnMediaPropertiesChanged;
         _log($"bound to Amazon Music session: {found.SourceAppUserModelId}");

@@ -30,7 +30,59 @@ internal static class AmazonLauncher
     private static readonly TimeSpan LaunchTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>True when Amazon Music's browser process is running.</summary>
-    public static bool IsRunning() => GetProcesses().Length > 0;
+    public static bool IsRunning()
+    {
+        var processes = GetProcesses();
+
+        foreach (var process in processes)
+            process.Dispose();
+
+        return processes.Length > 0;
+    }
+
+    /// <summary>
+    /// The oldest live "Amazon Music" process, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// CEF's renderer and GPU children run from the same executable, so the first
+    /// match is not necessarily the one whose exit means the app is gone. The
+    /// browser process starts them, so it is always the oldest. The caller owns the
+    /// returned process; every other handle is released here.
+    /// </remarks>
+    public static Process? FindMain()
+    {
+        var processes = GetProcesses();
+
+        Process? oldest = null;
+        var oldestStart = DateTime.MaxValue;
+
+        foreach (var process in processes)
+        {
+            // An unreadable StartTime means exited or access-denied - either way it
+            // is the least useful anchor, so it only wins if nothing else does.
+            var start = DateTime.MaxValue;
+            try
+            {
+                start = process.StartTime;
+            }
+            catch (Exception)
+            {
+                // Keep the sentinel.
+            }
+
+            if (oldest is null || start < oldestStart)
+            {
+                oldest?.Dispose();
+                oldest = process;
+                oldestStart = start;
+                continue;
+            }
+
+            process.Dispose();
+        }
+
+        return oldest;
+    }
 
     /// <summary>
     /// Picks a debug port from the dynamic range, to be remembered in settings.
