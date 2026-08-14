@@ -138,14 +138,31 @@ internal sealed class BridgeForm : Form
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add(Toggle(
-            "Amazon Music の曲変更通知を非表示",
-            "Amazon Music の曲変更通知を非表示にして、通知センターにも表示しない。",
+            "Amazon Music の曲変更通知を通知センターから消す",
+            "読み取った曲変更通知を通知センターから自動で削除します。ON にした時点で溜まっている分も消します。",
             _settings.RemoveNotificationsAfterProcessing,
             value =>
             {
                 _settings.RemoveNotificationsAfterProcessing = value;
                 if (_notifications is not null)
+                {
                     _notifications.RemoveAfterProcessing = value;
+                    if (value)
+                        _ = _notifications.SweepAsync();
+                }
+
+                ApplyBannerSuppression();
+            }));
+
+        menu.Items.Add(Toggle(
+            "曲変更通知のバナーも出さない",
+            "Windows の通知設定で Amazon Music のバナー表示を OFF にします。上の設定と併用したときだけ効きます。"
+            + "OFF に戻すと元の設定に戻ります。設定 > システム > 通知 からも確認できます。",
+            _settings.SuppressNotificationBanner,
+            value =>
+            {
+                _settings.SuppressNotificationBanner = value;
+                ApplyBannerSuppression();
             }));
 
         menu.Items.Add(Toggle(
@@ -324,6 +341,7 @@ internal sealed class BridgeForm : Form
             _monitor.Relaunching += window => _processes.SuppressExitFor(window);
 
             Write($"metadata source: {_settings.MetadataSource}, debug port {_settings.RemoteDebuggingPort}");
+            ApplyBannerSuppression();
             ApplySourceSetting();
 
             if (UsesCdp)
@@ -349,6 +367,24 @@ internal sealed class BridgeForm : Form
 
         if (UsesNotifications)
             _ = StartNotificationsAsync();
+    }
+
+    /// <summary>
+    /// Brings Windows' per-app banner setting in line with the notification
+    /// toggles. Both have to be on: the banner setting belongs to Windows rather
+    /// than to the bridge, and turning it off for someone who never asked to hide
+    /// these notifications would be a change they did not make.
+    /// </summary>
+    private void ApplyBannerSuppression()
+    {
+        if (_settings is { RemoveNotificationsAfterProcessing: true, SuppressNotificationBanner: true })
+            NotificationBannerSuppressor.Apply(_settings, Write);
+        else
+            NotificationBannerSuppressor.Restore(_settings, Write);
+
+        // Apply/Restore record what they replaced, and that has to outlive the run
+        // that made the change or the user's own setting cannot be put back.
+        _settings.Save();
     }
 
     /// <summary>
