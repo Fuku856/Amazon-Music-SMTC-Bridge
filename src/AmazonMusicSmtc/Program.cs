@@ -72,6 +72,15 @@ internal sealed class BridgeForm : Form
     private bool _polling;
     private bool _connecting;
 
+    /// <summary>
+    /// Whether the notification listener actually has permission. Distinct from
+    /// <c>_notifications is not null</c>, which only means construction was
+    /// attempted - access can still be denied. Gates
+    /// <see cref="ApplyBannerSuppression"/> so the banner is never turned off
+    /// without the removal side that is supposed to keep the Action Center clean.
+    /// </summary>
+    private bool _notificationsAllowed;
+
     private bool UsesCdp => _settings.MetadataSource is MetadataSource.Auto or MetadataSource.Cdp;
 
     private bool UsesNotifications => _settings.MetadataSource is MetadataSource.Auto or MetadataSource.Notification;
@@ -341,7 +350,6 @@ internal sealed class BridgeForm : Form
             _monitor.Relaunching += window => _processes.SuppressExitFor(window);
 
             Write($"metadata source: {_settings.MetadataSource}, debug port {_settings.RemoteDebuggingPort}");
-            ApplyBannerSuppression();
             ApplySourceSetting();
 
             if (UsesCdp)
@@ -367,17 +375,27 @@ internal sealed class BridgeForm : Form
 
         if (UsesNotifications)
             _ = StartNotificationsAsync();
+
+        // Covers Cdp-only mode, where StartNotificationsAsync never runs and so
+        // never gets a chance to (re)apply this. Under Auto/Notification this is an
+        // early pass against whatever _notificationsAllowed currently holds;
+        // StartNotificationsAsync corrects it once real access is known.
+        ApplyBannerSuppression();
     }
 
     /// <summary>
     /// Brings Windows' per-app banner setting in line with the notification
-    /// toggles. Both have to be on: the banner setting belongs to Windows rather
-    /// than to the bridge, and turning it off for someone who never asked to hide
-    /// these notifications would be a change they did not make.
+    /// toggles. Suppressing needs all three: both toggles on, and - whenever
+    /// notifications are actually in use - permission actually granted. Without
+    /// that last check, a denied prompt would leave banners off with nothing left
+    /// to ever clear the Action Center, which is worse than either setting alone.
     /// </summary>
     private void ApplyBannerSuppression()
     {
-        if (_settings is { RemoveNotificationsAfterProcessing: true, SuppressNotificationBanner: true })
+        var canSuppress = _settings is { RemoveNotificationsAfterProcessing: true, SuppressNotificationBanner: true }
+            && (!UsesNotifications || _notificationsAllowed);
+
+        if (canSuppress)
             NotificationBannerSuppressor.Apply(_settings, Write);
         else
             NotificationBannerSuppressor.Restore(_settings, Write);
@@ -405,7 +423,12 @@ internal sealed class BridgeForm : Form
                 RemoveAfterProcessing = _settings.RemoveNotificationsAfterProcessing,
             };
             _notifications.TrackDetected += track => BeginInvoke(() => PublishTrack(track, fromCdp: false));
-            await _notifications.StartAsync();
+
+            _notificationsAllowed = await _notifications.StartAsync();
+
+            // Re-evaluated now that access is actually known - the pass in
+            // ApplySourceSetting ran before this await and could not have known it.
+            ApplyBannerSuppression();
         }
         catch (Exception ex)
         {

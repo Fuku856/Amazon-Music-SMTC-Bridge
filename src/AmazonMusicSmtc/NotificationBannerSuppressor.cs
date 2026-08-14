@@ -51,7 +51,14 @@ internal static class NotificationBannerSuppressor
             return;
         }
 
-        var name = ResolveKeyName(log);
+        // Once applied, keep using the key that was actually written rather than
+        // re-resolving: Amazon can register a second AUMID under the same family
+        // between runs, which would otherwise make a later Restore() target a key
+        // Apply() never touched, leaving the real one at ShowBanner = 0 forever.
+        var name = settings.BannerSuppressionApplied
+            ? settings.BannerSuppressionKeyName
+            : ResolveKeyName(log);
+
         if (name is null)
             return;
 
@@ -64,15 +71,18 @@ internal static class NotificationBannerSuppressor
                 return;
             }
 
-            // Recorded once, at the transition. Re-asserting on every start must not
-            // capture the bridge's own 0 as the value to restore.
-            if (!settings.BannerSuppressionApplied)
-            {
-                settings.PreviousShowBannerValue = key.GetValue(ShowBannerValue) as int?;
-                settings.BannerSuppressionApplied = true;
-            }
+            var previous = settings.BannerSuppressionApplied
+                ? settings.PreviousShowBannerValue
+                : ReadPreviousValue(key, log);
 
             key.SetValue(ShowBannerValue, 0, RegistryValueKind.DWord);
+
+            // Committed only now that the write has actually succeeded - setting
+            // these first and having SetValue throw would leave settings.json
+            // claiming suppression is active when the registry was never touched.
+            settings.PreviousShowBannerValue = previous;
+            settings.BannerSuppressionApplied = true;
+            settings.BannerSuppressionKeyName = name;
             log($"notification banners turned off for {name}");
         }
         catch (Exception ex)
@@ -86,15 +96,25 @@ internal static class NotificationBannerSuppressor
         if (!settings.BannerSuppressionApplied)
             return;
 
-        var name = ResolveKeyName(log);
+        var name = settings.BannerSuppressionKeyName;
+        if (name is null)
+        {
+            // Applied by a version that did not record the key: nothing to target,
+            // so there is nothing safe to do beyond forgetting the stale state.
+            settings.PreviousShowBannerValue = null;
+            settings.BannerSuppressionApplied = false;
+            return;
+        }
 
         try
         {
-            using var key = name is null
-                ? null
-                : Registry.CurrentUser.OpenSubKey($@"{SettingsKey}\{name}", writable: true);
+            using var key = Registry.CurrentUser.OpenSubKey($@"{SettingsKey}\{name}", writable: true);
 
-            if (key is not null)
+            if (key is null)
+            {
+                log($"notification settings for {name} no longer exist; nothing to restore");
+            }
+            else
             {
                 // The value is deleted rather than set to 1 when there was nothing
                 // there before, so Windows goes back to its own default instead of
@@ -106,16 +126,37 @@ internal static class NotificationBannerSuppressor
 
                 log($"notification banners restored for {name}");
             }
+
+            // Cleared only once the restore has actually run to completion (or
+            // there was verifiably nothing to restore) - an exception below skips
+            // this, so a later Restore() call can retry against the same key
+            // instead of losing track of it.
+            settings.PreviousShowBannerValue = null;
+            settings.BannerSuppressionApplied = false;
+            settings.BannerSuppressionKeyName = null;
         }
         catch (Exception ex)
         {
             log($"could not restore Amazon Music's notification banners: {ex.Message}");
         }
+    }
 
-        // Cleared even when the write failed: holding a stale "applied" would make
-        // the next Apply record the bridge's own 0 as the user's value.
-        settings.BannerSuppressionApplied = false;
-        settings.PreviousShowBannerValue = null;
+    /// <summary>
+    /// Reads the value Apply is about to override, warning when it exists but is
+    /// not a DWORD - <see cref="Settings.PreviousShowBannerValue"/> can only hold an
+    /// int, so a differently-typed value would otherwise be silently discarded on
+    /// restore with no record that anything was there at all.
+    /// </summary>
+    private static int? ReadPreviousValue(RegistryKey key, Action<string> log)
+    {
+        var raw = key.GetValue(ShowBannerValue);
+        if (raw is int value)
+            return value;
+
+        if (raw is not null)
+            log($"existing {ShowBannerValue} value is {raw.GetType().Name}, not DWORD; it will be deleted rather than restored");
+
+        return null;
     }
 
     /// <summary>
@@ -144,8 +185,15 @@ internal static class NotificationBannerSuppressor
                 if (names.Contains(expected, StringComparer.OrdinalIgnoreCase))
                     return expected;
 
-                // The package registers a second AUMID for its SMTC session, so this
-                // is only reached when the toast publisher has been renamed.
+                // Best effort: the package also registers a second AUMID for its
+                // SMTC session, and either one could be the match here if the toast
+                // publisher has been renamed or Windows has not yet registered the
+                // exact id above. There is no reliable way to tell them apart -
+                // Amazon's toasts do not expose a readable AUMID at all (see
+                // NotificationWatcher.TryGetAumid) - so a wrong match is possible in
+                // principle. Once Apply() succeeds against whatever this returns,
+                // Settings.BannerSuppressionKeyName pins it so Restore() cannot
+                // later disagree with Apply() about which key is "the" key.
                 var other = names.FirstOrDefault(n =>
                     n.StartsWith(family + "!", StringComparison.OrdinalIgnoreCase));
 

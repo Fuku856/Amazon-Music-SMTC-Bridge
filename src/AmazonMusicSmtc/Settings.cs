@@ -52,6 +52,17 @@ internal sealed class Settings
     /// </summary>
     public bool BannerSuppressionApplied { get; set; }
 
+    /// <summary>
+    /// The exact notification-settings subkey ShowBanner was written to. Amazon's
+    /// toast AUMID cannot be read off the toast itself (see
+    /// NotificationBannerSuppressor), so the name is a best-effort resolution that
+    /// can change between runs as Windows registers more of Amazon's AUMIDs. Pinning
+    /// it here the moment it is first applied means Restore always targets the same
+    /// key Apply wrote, instead of re-resolving and possibly landing on a different
+    /// one that was never touched.
+    /// </summary>
+    public string? BannerSuppressionKeyName { get; set; }
+
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public MetadataSource MetadataSource { get; set; } = MetadataSource.Auto;
 

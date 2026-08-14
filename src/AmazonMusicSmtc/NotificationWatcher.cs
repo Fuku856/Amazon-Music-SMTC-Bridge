@@ -18,9 +18,16 @@ internal sealed class NotificationWatcher
 
     private readonly Action<string> _log;
     private readonly Func<string?> _currentAmazonArtist;
+
+    // Guards the two fields below. OnNotificationChanged fires on the WinRT
+    // listener's own callback thread (Program.cs marshals TrackDetected back to
+    // the UI thread precisely because this is not it), while a sweep can run from
+    // the UI thread at the same time - so a plain HashSet/bool would race.
+    private readonly object _diagnosticsGate = new();
     private readonly HashSet<string> _rejectedAumids = new(StringComparer.OrdinalIgnoreCase);
-    private UserNotificationListener? _listener;
     private bool _warnedShape;
+
+    private UserNotificationListener? _listener;
 
     public event Action<TrackInfo>? TrackDetected;
 
@@ -61,33 +68,40 @@ internal sealed class NotificationWatcher
         if (_listener is null)
             return;
 
+        IEnumerable<UserNotification> existing;
         try
         {
-            var existing = await _listener.GetNotificationsAsync(NotificationKinds.Toast);
-
-            foreach (var notification in existing.OrderByDescending(n => n.CreationTime))
-            {
-                if (!IsAmazonTrackToast(notification, out var toast))
-                    continue;
-
-                // Stop at the newest Amazon toast whether or not it correlates.
-                // Amazon overwrites a single artwork file per track change, so the
-                // cover on disk belongs to this toast and to no older one.
-                if (TryMatchSession(toast, out var track))
-                {
-                    _log($"catch-up track: {track}");
-                    TrackDetected?.Invoke(track);
-                }
-
-                break;
-            }
+            existing = await _listener.GetNotificationsAsync(NotificationKinds.Toast);
         }
         catch (Exception ex)
         {
             _log($"catch-up failed: {ex.Message}");
+            return;
         }
 
-        await SweepAsync();
+        // Materialized once so the newest-toast scan below and the sweep after it
+        // both read this same snapshot instead of each fetching the Action Center
+        // from scratch.
+        var snapshot = existing as IReadOnlyList<UserNotification> ?? existing.ToList();
+
+        foreach (var notification in snapshot.OrderByDescending(n => n.CreationTime))
+        {
+            if (!IsAmazonTrackToast(notification, out var toast))
+                continue;
+
+            // Stop at the newest Amazon toast whether or not it correlates.
+            // Amazon overwrites a single artwork file per track change, so the
+            // cover on disk belongs to this toast and to no older one.
+            if (TryMatchSession(toast, out var track))
+            {
+                _log($"catch-up track: {track}");
+                TrackDetected?.Invoke(track);
+            }
+
+            break;
+        }
+
+        await SweepAsync(snapshot);
     }
 
     /// <summary>
@@ -99,7 +113,14 @@ internal sealed class NotificationWatcher
     /// before that is never revisited, so turning the setting on - or starting at
     /// all - has to deal with the backlog explicitly.
     /// </remarks>
-    public async Task SweepAsync()
+    public Task SweepAsync() => SweepAsync(null);
+
+    /// <param name="existing">
+    /// A snapshot already fetched by the caller, reused instead of querying the
+    /// Action Center again - <see cref="CatchUpAsync"/> passes its own scan through
+    /// here. Null triggers a fresh fetch, for the toggle-driven call.
+    /// </param>
+    private async Task SweepAsync(IReadOnlyList<UserNotification>? existing)
     {
         var listener = _listener;
         if (listener is null || !RemoveAfterProcessing)
@@ -107,7 +128,7 @@ internal sealed class NotificationWatcher
 
         try
         {
-            var existing = await listener.GetNotificationsAsync(NotificationKinds.Toast);
+            existing ??= await listener.GetNotificationsAsync(NotificationKinds.Toast);
             var removed = 0;
 
             foreach (var notification in existing)
@@ -193,7 +214,11 @@ internal sealed class NotificationWatcher
         var identified = TryGetAumid(notification, out var aumid);
         if (identified && !aumid.Contains(AmazonPaths.SessionIdFragment, StringComparison.OrdinalIgnoreCase))
         {
-            if (_rejectedAumids.Add(aumid))
+            bool firstTime;
+            lock (_diagnosticsGate)
+                firstTime = _rejectedAumids.Add(aumid);
+
+            if (firstTime)
                 _log($"ignoring toasts from {aumid}");
 
             return false;
@@ -235,10 +260,14 @@ internal sealed class NotificationWatcher
     /// </summary>
     private void WarnShape(string detail)
     {
-        if (_warnedShape)
-            return;
+        lock (_diagnosticsGate)
+        {
+            if (_warnedShape)
+                return;
 
-        _warnedShape = true;
+            _warnedShape = true;
+        }
+
         _log($"unidentified toast did not match Amazon's layout ({detail})");
     }
 
