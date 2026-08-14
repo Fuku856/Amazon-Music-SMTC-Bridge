@@ -65,7 +65,7 @@ internal sealed class AmazonProcessWatcher : IDisposable
 
         // The common case: the anchor is still alive, so there is nothing to
         // enumerate. One handle check per tick.
-        if (_anchor is not null && !HasExited(_anchor))
+        if (_anchor is not null && !IsGone(_anchor))
         {
             Publish(true);
             return;
@@ -73,16 +73,29 @@ internal sealed class AmazonProcessWatcher : IDisposable
 
         ReleaseAnchor();
 
-        var main = AmazonLauncher.FindMain();
-        if (main is null)
+        // Bounded on purpose. A process can die between being enumerated and being
+        // subscribed to, and one more round settles that race - but re-enumerating
+        // until it settles would spin forever against anything that keeps handing
+        // the same unusable process back.
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            Publish(false);
-            return;
+            var main = AmazonLauncher.FindMain();
+            if (main is null)
+                break;
+
+            _anchor = main;
+            WatchExit(main);
+
+            if (!IsGone(main))
+            {
+                Publish(true);
+                return;
+            }
+
+            ReleaseAnchor();
         }
 
-        _anchor = main;
-        WatchExit(main);
-        Publish(true);
+        Publish(false);
     }
 
     /// <summary>
@@ -101,15 +114,12 @@ internal sealed class AmazonProcessWatcher : IDisposable
 
     private void Publish(bool running)
     {
-        if (running)
-        {
-            // A live process settles the question; nothing left to wait out.
-            _suppressUntilUtc = DateTime.MinValue;
-        }
-        else if (DateTime.UtcNow < _suppressUntilUtc)
-        {
+        // Seeing a live process must not cancel the window. It is opened while the
+        // outgoing process is still up, and the replacement comes up before its own
+        // SMTC session registers - cancelling on either sighting would reopen the
+        // exact gap the window exists to cover. Only the deadline closes it.
+        if (!running && DateTime.UtcNow < _suppressUntilUtc)
             return;
-        }
 
         if (running == _running)
             return;
@@ -119,6 +129,11 @@ internal sealed class AmazonProcessWatcher : IDisposable
         RunningChanged?.Invoke(running);
     }
 
+    /// <summary>
+    /// Subscribes to the anchor's exit. Deliberately does not re-check the process
+    /// afterwards: <see cref="Poll"/> does that inline, and posting another Poll
+    /// from here would be a call back into the method that just called us.
+    /// </summary>
     private void WatchExit(Process process)
     {
         try
@@ -135,13 +150,7 @@ internal sealed class AmazonProcessWatcher : IDisposable
                 _warnedNoExitEvent = true;
                 _log($"cannot watch Amazon Music's exit ({ex.Message}); falling back to polling");
             }
-
-            return;
         }
-
-        // Closes the window between finding the process and subscribing to it.
-        if (HasExited(process))
-            _post(Poll);
     }
 
     private void OnAnchorExited(object? sender, EventArgs e) => _post(Poll);
@@ -167,7 +176,19 @@ internal sealed class AmazonProcessWatcher : IDisposable
         anchor.Dispose();
     }
 
-    private static bool HasExited(Process process)
+    /// <summary>
+    /// True only when the process is known to have ended.
+    /// </summary>
+    /// <remarks>
+    /// The handle is held from enumeration onwards and stays readable across the
+    /// exit, so a read that throws means something denied us the handle rather than
+    /// that the process is gone. Reading it as "gone" would put this at odds with
+    /// <see cref="AmazonLauncher.FindMain"/>, which hands the same live process
+    /// straight back, and the two would trade turns for as long as it ran. Holding
+    /// the session open instead degrades to the session-driven teardown in
+    /// <c>ApplyPlaybackStatus</c>, which does not need a handle.
+    /// </remarks>
+    private static bool IsGone(Process process)
     {
         try
         {
@@ -175,8 +196,7 @@ internal sealed class AmazonProcessWatcher : IDisposable
         }
         catch (Exception)
         {
-            // No readable handle means we cannot vouch for it being alive.
-            return true;
+            return false;
         }
     }
 

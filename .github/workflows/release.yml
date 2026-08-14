@@ -55,23 +55,37 @@ jobs:
           }
           # A SemVer pre-release suffix is allowed on the tag but cannot reach the
           # package: MSIX Identity/Version is four numeric parts and nothing else.
-          if ($version -notmatch '^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.]+))?$') {
+          $m = [regex]::Match($version, '^(?<base>\d+\.\d+\.\d+)(?:-(?<pre>[0-9A-Za-z.]+))?$')
+          if (-not $m.Success) {
             throw "バージョンは v1.0.0 / 1.0.0、プレリリースなら v1.2.0-beta1 の形式で指定してください（入力値: '$raw'）。"
           }
-          $base = $Matches[1]
-          $pre  = $Matches[2]
+          $base = $m.Groups['base'].Value
+          $pre  = $m.Groups['pre'].Value
+
+          # The whole identifier has to survive the trip into a single number, series
+          # included. Encoding only the trailing number would map alpha1 and beta1 to
+          # the same package version, and installing the second over the first fails
+          # with 0x80073CFB - which install.cmd cannot retry past, so the user would
+          # have to uninstall and lose their settings. A decade block per series
+          # keeps them apart and keeps them in order.
+          $series = [ordered]@{ alpha = 1; beta = 2; rc = 3 }
 
           if ($pre) {
-            # The suffix's trailing number becomes the package revision, so beta1 and
-            # beta2 pack as 1.2.0.1 and 1.2.0.2. Without it both would be 1.2.0.0 and
-            # the second install would fail with 0x80073CFB (same version, other bits).
-            if ($pre -notmatch '(\d+)$') {
-              throw "プレリリース識別子は末尾に番号が必要です（例: v$base-beta1）。入力値: '$raw'"
+            $p = [regex]::Match($pre, '^(?<series>[A-Za-z]+)(?<number>\d+)$')
+            if (-not $p.Success) {
+              throw "プレリリース識別子は「英字＋番号」の形で指定してください（例: v$base-beta1）。入力値: '$raw'"
             }
-            $revision = [int]$Matches[1]
-            if ($revision -lt 1 -or $revision -gt 65535) {
-              throw "プレリリースの番号は 1〜65535 で指定してください（入力値: '$raw'）。"
+            $rank = $series[$p.Groups['series'].Value.ToLower()]
+            if (-not $rank) {
+              throw "使用できるプレリリース識別子は $($series.Keys -join ' / ') です（例: v$base-beta1）。入力値: '$raw'"
             }
+            $number = [int]$p.Groups['number'].Value
+            if ($number -lt 1 -or $number -gt 9999) {
+              throw "プレリリースの番号は 1〜9999 で指定してください（入力値: '$raw'）。"
+            }
+            # alpha1 -> 10001, beta1 -> 20001, rc1 -> 30001. Well inside the 65535
+            # a revision field holds, and ordered the way the series are.
+            $revision = $rank * 10000 + $number
             $tag = "v$base-$pre"
           }
           else {
