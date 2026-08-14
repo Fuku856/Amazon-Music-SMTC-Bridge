@@ -29,6 +29,40 @@ internal sealed class Settings
     /// </summary>
     public bool RemoveNotificationsAfterProcessing { get; set; }
 
+    /// <summary>
+    /// Also stop Windows from showing the banner, by turning Amazon Music's per-app
+    /// "show banners" setting off. Only takes effect alongside
+    /// <see cref="RemoveNotificationsAfterProcessing"/>, which is the switch that
+    /// says the user does not want to see these notifications at all - on its own
+    /// this one would change a Windows setting nobody asked to change.
+    /// </summary>
+    public bool SuppressNotificationBanner { get; set; } = true;
+
+    /// <summary>
+    /// What ShowBanner held before the bridge turned it off, so the user's own
+    /// choice survives. Null means the value did not exist.
+    /// </summary>
+    public int? PreviousShowBannerValue { get; set; }
+
+    /// <summary>
+    /// True while the bridge's ShowBanner = 0 is in place. Tells "not applied yet"
+    /// apart from "applied over a value that did not exist", which
+    /// <see cref="PreviousShowBannerValue"/> alone cannot express - without it a
+    /// second run would record the bridge's own 0 as the value to restore.
+    /// </summary>
+    public bool BannerSuppressionApplied { get; set; }
+
+    /// <summary>
+    /// The exact notification-settings subkey ShowBanner was written to. Amazon's
+    /// toast AUMID cannot be read off the toast itself (see
+    /// NotificationBannerSuppressor), so the name is a best-effort resolution that
+    /// can change between runs as Windows registers more of Amazon's AUMIDs. Pinning
+    /// it here the moment it is first applied means Restore always targets the same
+    /// key Apply wrote, instead of re-resolving and possibly landing on a different
+    /// one that was never touched.
+    /// </summary>
+    public string? BannerSuppressionKeyName { get; set; }
+
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public MetadataSource MetadataSource { get; set; } = MetadataSource.Auto;
 

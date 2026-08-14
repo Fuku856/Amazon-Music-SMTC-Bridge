@@ -4,8 +4,9 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 uap5 rescap">
+  IgnorableNamespaces="uap uap3 uap5 desktop6 rescap">
 
   <!-- Publisher must exactly match the signing certificate Subject at packaging time.
        For dev-mode loose registration (Add-AppxPackage -Register) any value works. -->
@@ -23,6 +24,16 @@
     <DisplayName>AmazonMusic SMTC Bridge</DisplayName>
     <PublisherDisplayName>AmazonMusicSmtc</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
+
+    <!-- Without this, MSIX redirects the app's HKCU writes into a per-package hive
+         that only this app can see. NotificationBannerSuppressor writes a per-app
+         notification setting the shell has to read, so the redirection has to be
+         off. Honoured from Windows 10 1903; older builds ignore it (desktop6 is in
+         IgnorableNamespaces) and the suppressor declines to write there.
+         The bridge writes exactly one HKCU value, so a package-wide opt-out costs
+         nothing over the narrower virtualization:ExcludedKeys form, which would
+         raise the floor to build 20348. -->
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
   </Properties>
 
   <Dependencies>
@@ -35,6 +46,9 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <!-- Required by desktop6:RegistryWriteVirtualization above. Restricted, but so
+         is runFullTrust: this package is sideloaded, never Store-submitted. -->
+    <rescap:Capability Name="unvirtualizedResources" />
     <!-- The reason this app must be packaged at all: this capability cannot be
          declared without package identity. -->
     <uap3:Capability Name="userNotificationListener" />

@@ -72,6 +72,15 @@ internal sealed class BridgeForm : Form
     private bool _polling;
     private bool _connecting;
 
+    /// <summary>
+    /// Whether the notification listener actually has permission. Distinct from
+    /// <c>_notifications is not null</c>, which only means construction was
+    /// attempted - access can still be denied. Gates
+    /// <see cref="ApplyBannerSuppression"/> so the banner is never turned off
+    /// without the removal side that is supposed to keep the Action Center clean.
+    /// </summary>
+    private bool _notificationsAllowed;
+
     private bool UsesCdp => _settings.MetadataSource is MetadataSource.Auto or MetadataSource.Cdp;
 
     private bool UsesNotifications => _settings.MetadataSource is MetadataSource.Auto or MetadataSource.Notification;
@@ -138,14 +147,31 @@ internal sealed class BridgeForm : Form
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add(Toggle(
-            "Amazon Music の曲変更通知を非表示",
-            "Amazon Music の曲変更通知を非表示にして、通知センターにも表示しない。",
+            "Amazon Music の曲変更通知を通知センターから消す",
+            "読み取った曲変更通知を通知センターから自動で削除します。ON にした時点で溜まっている分も消します。",
             _settings.RemoveNotificationsAfterProcessing,
             value =>
             {
                 _settings.RemoveNotificationsAfterProcessing = value;
                 if (_notifications is not null)
+                {
                     _notifications.RemoveAfterProcessing = value;
+                    if (value)
+                        _ = _notifications.SweepAsync();
+                }
+
+                ApplyBannerSuppression();
+            }));
+
+        menu.Items.Add(Toggle(
+            "曲変更通知のバナーも出さない",
+            "Windows の通知設定で Amazon Music のバナー表示を OFF にします。上の設定と併用したときだけ効きます。"
+            + "OFF に戻すと元の設定に戻ります。設定 > システム > 通知 からも確認できます。",
+            _settings.SuppressNotificationBanner,
+            value =>
+            {
+                _settings.SuppressNotificationBanner = value;
+                ApplyBannerSuppression();
             }));
 
         menu.Items.Add(Toggle(
@@ -349,6 +375,34 @@ internal sealed class BridgeForm : Form
 
         if (UsesNotifications)
             _ = StartNotificationsAsync();
+
+        // Covers Cdp-only mode, where StartNotificationsAsync never runs and so
+        // never gets a chance to (re)apply this. Under Auto/Notification this is an
+        // early pass against whatever _notificationsAllowed currently holds;
+        // StartNotificationsAsync corrects it once real access is known.
+        ApplyBannerSuppression();
+    }
+
+    /// <summary>
+    /// Brings Windows' per-app banner setting in line with the notification
+    /// toggles. Suppressing needs all three: both toggles on, and - whenever
+    /// notifications are actually in use - permission actually granted. Without
+    /// that last check, a denied prompt would leave banners off with nothing left
+    /// to ever clear the Action Center, which is worse than either setting alone.
+    /// </summary>
+    private void ApplyBannerSuppression()
+    {
+        var canSuppress = _settings is { RemoveNotificationsAfterProcessing: true, SuppressNotificationBanner: true }
+            && (!UsesNotifications || _notificationsAllowed);
+
+        if (canSuppress)
+            NotificationBannerSuppressor.Apply(_settings, Write);
+        else
+            NotificationBannerSuppressor.Restore(_settings, Write);
+
+        // Apply/Restore record what they replaced, and that has to outlive the run
+        // that made the change or the user's own setting cannot be put back.
+        _settings.Save();
     }
 
     /// <summary>
@@ -369,7 +423,12 @@ internal sealed class BridgeForm : Form
                 RemoveAfterProcessing = _settings.RemoveNotificationsAfterProcessing,
             };
             _notifications.TrackDetected += track => BeginInvoke(() => PublishTrack(track, fromCdp: false));
-            await _notifications.StartAsync();
+
+            _notificationsAllowed = await _notifications.StartAsync();
+
+            // Re-evaluated now that access is actually known - the pass in
+            // ApplySourceSetting ran before this await and could not have known it.
+            ApplyBannerSuppression();
         }
         catch (Exception ex)
         {
