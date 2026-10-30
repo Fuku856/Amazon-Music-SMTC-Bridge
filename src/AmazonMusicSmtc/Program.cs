@@ -1,3 +1,4 @@
+using AmazonMusicSmtc.Localization;
 using Windows.Media;
 using Windows.Media.Control;
 
@@ -57,6 +58,17 @@ internal sealed class BridgeForm : Form
     private readonly ToolStripMenuItem[] _sourceItems;
     private readonly AmazonProcessWatcher _processes;
 
+    private readonly ToolStripMenuItem _showLogItem;
+    private readonly ToolStripMenuItem _sourceMenu;
+    private readonly ToolStripMenuItem _restartItem;
+    private readonly ToolStripMenuItem _relaunchItem;
+    private readonly ToolStripMenuItem _hideNotificationsItem;
+    private readonly ToolStripMenuItem _saveArtworkItem;
+    private readonly ToolStripMenuItem _languageMenu;
+    private readonly ToolStripMenuItem _englishItem;
+    private readonly ToolStripMenuItem _japaneseItem;
+    private readonly ToolStripMenuItem _exitItem;
+
     private AmazonSessionWatcher _amazon = null!;
     private ArtworkProvider _artwork = null!;
     private AmazonMusicMonitor _monitor = null!;
@@ -98,6 +110,7 @@ internal sealed class BridgeForm : Form
         Controls.Add(_log);
 
         _settings = Settings.Load();
+        Strings.Apply(_settings.Language);
 
         // Built here rather than in InitializeAsync so PublishTrack can never see a
         // null gate. It reports "not running" until the first poll, which is the
@@ -105,64 +118,80 @@ internal sealed class BridgeForm : Form
         _processes = new AmazonProcessWatcher(Write, PostToUi);
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("ログを表示", null, (_, _) => ShowLog());
+
+        _showLogItem = new ToolStripMenuItem(Strings.ShowLog);
+        _showLogItem.Click += (_, _) => ShowLog();
+        menu.Items.Add(_showLogItem);
         menu.Items.Add(new ToolStripSeparator());
 
         _sourceItems =
         [
-            SourceItem(MetadataSource.Auto, "自動",
-                "デバッグポートが使えるときは CDP、使えないときは通知から取得します。"),
-            SourceItem(MetadataSource.Cdp, "デバッグポートのみ",
-                "通知を一切使いません。通知へのアクセス許可も要求しません。"),
-            SourceItem(MetadataSource.Notification, "通知のみ",
-                "Amazon Music を再起動せず、デバッグポートも開きません。Amazon Music にフォーカス中は曲情報が更新されません。"),
+            SourceItem(MetadataSource.Auto, Strings.SourceAuto, Strings.SourceAutoTip),
+            SourceItem(MetadataSource.Cdp, Strings.SourceCdp, Strings.SourceCdpTip),
+            SourceItem(MetadataSource.Notification, Strings.SourceNotification, Strings.SourceNotificationTip),
         ];
 
-        var sourceMenu = new ToolStripMenuItem("曲情報の取得方式");
-        sourceMenu.DropDownItems.AddRange(_sourceItems);
-        menu.Items.Add(sourceMenu);
+        _sourceMenu = new ToolStripMenuItem(Strings.SourceMenu);
+        _sourceMenu.DropDownItems.AddRange(_sourceItems);
+        menu.Items.Add(_sourceMenu);
 
-        menu.Items.Add("デバッグポート付きで再起動", null, (_, _) => RestartAmazonMusic());
+        _restartItem = new ToolStripMenuItem(Strings.RestartWithDebugPort);
+        _restartItem.Click += (_, _) => RestartAmazonMusic();
+        menu.Items.Add(_restartItem);
 
-        var relaunchItem = Toggle(
-            "常にデバッグポート付きで動かす",
-            "デバッグポート無しで動いている Amazon Music を見つけたら起動し直します。手動起動した場合も対象です。",
+        _relaunchItem = Toggle(
+            Strings.AlwaysRunWithDebugPort,
+            Strings.AlwaysRunWithDebugPortTip,
             _settings.AutoRelaunchAmazonMusic,
             value =>
             {
                 _settings.AutoRelaunchAmazonMusic = value;
                 ApplySourceSetting();
             });
-        menu.Items.Add(relaunchItem);
+        menu.Items.Add(_relaunchItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
-        menu.Items.Add(Toggle(
-            "Amazon Music の曲変更通知を非表示",
-            "Amazon Music の曲変更通知を非表示にして、通知センターにも表示しない。",
+        _hideNotificationsItem = Toggle(
+            Strings.HideTrackChangeNotifications,
+            Strings.HideTrackChangeNotificationsTip,
             _settings.RemoveNotificationsAfterProcessing,
             value =>
             {
                 _settings.RemoveNotificationsAfterProcessing = value;
                 if (_notifications is not null)
                     _notifications.RemoveAfterProcessing = value;
-            }));
+            });
+        menu.Items.Add(_hideNotificationsItem);
 
-        menu.Items.Add(Toggle(
-            "ジャケットをオフライン用に保存",
-            "取得したジャケットを保存し、接続が無いときも表示できるようにします。",
+        _saveArtworkItem = Toggle(
+            Strings.SaveArtworkOffline,
+            Strings.SaveArtworkOfflineTip,
             _settings.KeepArtworkCache,
             value =>
             {
                 _settings.KeepArtworkCache = value;
                 if (_artwork is not null)
                     _artwork.KeepCache = value;
-            }));
+            });
+        menu.Items.Add(_saveArtworkItem);
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("終了", null, (_, _) => ExitApplication());
+
+        _languageMenu = new ToolStripMenuItem(Strings.LanguageMenu);
+        _englishItem = LanguageItem(UiLanguage.English, "English");
+        _japaneseItem = LanguageItem(UiLanguage.Japanese, "日本語");
+        _languageMenu.DropDownItems.Add(_englishItem);
+        _languageMenu.DropDownItems.Add(_japaneseItem);
+        menu.Items.Add(_languageMenu);
+
+        menu.Items.Add(new ToolStripSeparator());
+        _exitItem = new ToolStripMenuItem(Strings.Exit);
+        _exitItem.Click += (_, _) => ExitApplication();
+        menu.Items.Add(_exitItem);
 
         UpdateSourceChecks();
+        UpdateLanguageChecks();
 
         var icon = LoadAppIcon();
         Icon = icon;
@@ -202,6 +231,67 @@ internal sealed class BridgeForm : Form
     {
         foreach (var item in _sourceItems)
             item.Checked = (MetadataSource)item.Tag! == _settings.MetadataSource;
+    }
+
+    private ToolStripMenuItem LanguageItem(UiLanguage language, string text)
+    {
+        var item = new ToolStripMenuItem(text) { Tag = language };
+        item.Click += (_, _) =>
+        {
+            if (_settings.Language == language)
+                return;
+
+            _settings.Language = language;
+            _settings.Save();
+            Strings.Apply(language);
+            ApplyLanguage();
+            UpdateLanguageChecks();
+            Write($"ui language: {language}");
+        };
+
+        return item;
+    }
+
+    private void UpdateLanguageChecks()
+    {
+        _englishItem.Checked = _settings.Language == UiLanguage.English;
+        _japaneseItem.Checked = _settings.Language == UiLanguage.Japanese;
+    }
+
+    private void ApplyLanguage()
+    {
+        _showLogItem.Text = Strings.ShowLog;
+        _sourceMenu.Text = Strings.SourceMenu;
+        _restartItem.Text = Strings.RestartWithDebugPort;
+        _relaunchItem.Text = Strings.AlwaysRunWithDebugPort;
+        _relaunchItem.ToolTipText = Strings.AlwaysRunWithDebugPortTip;
+        _hideNotificationsItem.Text = Strings.HideTrackChangeNotifications;
+        _hideNotificationsItem.ToolTipText = Strings.HideTrackChangeNotificationsTip;
+        _saveArtworkItem.Text = Strings.SaveArtworkOffline;
+        _saveArtworkItem.ToolTipText = Strings.SaveArtworkOfflineTip;
+        _languageMenu.Text = Strings.LanguageMenu;
+        _exitItem.Text = Strings.Exit;
+
+        foreach (var item in _sourceItems)
+        {
+            switch ((MetadataSource)item.Tag!)
+            {
+                case MetadataSource.Auto:
+                    item.Text = Strings.SourceAuto;
+                    item.ToolTipText = Strings.SourceAutoTip;
+                    break;
+
+                case MetadataSource.Cdp:
+                    item.Text = Strings.SourceCdp;
+                    item.ToolTipText = Strings.SourceCdpTip;
+                    break;
+
+                case MetadataSource.Notification:
+                    item.Text = Strings.SourceNotification;
+                    item.ToolTipText = Strings.SourceNotificationTip;
+                    break;
+            }
+        }
     }
 
     private ToolStripMenuItem Toggle(string text, string tooltip, bool initial, Action<bool> onChanged)

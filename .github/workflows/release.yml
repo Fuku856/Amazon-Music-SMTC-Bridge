@@ -1,17 +1,17 @@
-name: リリース
+name: Release
 
-# 手動実行のみ。バージョンの指定方法は2通り:
-#   1. 新規作成 - ブランチを選び、下の「バージョン」に入力する（タグは自動で作成される）
-#   2. 既存を選択 - 「Use workflow from」で既存タグを選び、「バージョン」は空のままにする
+# Manual runs only. There are two ways to specify the version:
+#   1. Create new - choose a branch and enter the version below (the tag is created automatically)
+#   2. Select existing - choose an existing tag under "Use workflow from" and leave "Version" empty
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'バージョン（例: v1.0.0 / 1.0.0 / v1.2.0-beta1）'
+        description: 'Version (e.g. v1.0.0 / 1.0.0 / v1.2.0-beta1)'
         required: false
         type: string
       prerelease:
-        description: 'プレリリースとして公開'
+        description: 'Publish as a pre-release'
         required: false
         default: false
         type: boolean
@@ -33,7 +33,7 @@ jobs:
           # Tags must be present so an existing one can be reused instead of recreated.
           fetch-depth: 0
 
-      - name: バージョンの決定
+      - name: Determine version
         id: v
         shell: pwsh
         env:
@@ -48,7 +48,7 @@ jobs:
           $version = $raw -replace '^v', ''
           if (-not $version) {
             if ($env:REF_TYPE -ne 'tag') {
-              throw "バージョンが指定されていません。バージョンを入力するか、「Use workflow from」でタグを選んで再実行してください。"
+              throw 'No version specified. Enter a version, or select a tag under "Use workflow from" and run again.'
             }
             $raw     = $env:REF_NAME
             $version = $raw -replace '^v', ''
@@ -57,7 +57,7 @@ jobs:
           # package: MSIX Identity/Version is four numeric parts and nothing else.
           $m = [regex]::Match($version, '^(?<base>\d+\.\d+\.\d+)(?:-(?<pre>[0-9A-Za-z.]+))?$')
           if (-not $m.Success) {
-            throw "バージョンは v1.0.0 / 1.0.0、プレリリースなら v1.2.0-beta1 の形式で指定してください（入力値: '$raw'）。"
+            throw "Specify the version as v1.0.0 / 1.0.0, or v1.2.0-beta1 for a pre-release (input: '$raw')."
           }
           $base = $m.Groups['base'].Value
           $pre  = $m.Groups['pre'].Value
@@ -73,15 +73,15 @@ jobs:
           if ($pre) {
             $p = [regex]::Match($pre, '^(?<series>[A-Za-z]+)(?<number>\d+)$')
             if (-not $p.Success) {
-              throw "プレリリース識別子は「英字＋番号」の形で指定してください（例: v$base-beta1）。入力値: '$raw'"
+              throw "The pre-release identifier must be letters followed by a number (e.g. v$base-beta1). Input: '$raw'"
             }
             $rank = $series[$p.Groups['series'].Value.ToLower()]
             if (-not $rank) {
-              throw "使用できるプレリリース識別子は $($series.Keys -join ' / ') です（例: v$base-beta1）。入力値: '$raw'"
+              throw "Allowed pre-release identifiers are $($series.Keys -join ' / ') (e.g. v$base-beta1). Input: '$raw'"
             }
             $number = [int]$p.Groups['number'].Value
             if ($number -lt 1 -or $number -gt 9999) {
-              throw "プレリリースの番号は 1〜9999 で指定してください（入力値: '$raw'）。"
+              throw "The pre-release number must be between 1 and 9999 (input: '$raw')."
             }
             # alpha1 -> 10001, beta1 -> 20001, rc1 -> 30001. Well inside the 65535
             # a revision field holds, and ordered the way the series are.
@@ -103,9 +103,9 @@ jobs:
           "tag=$tag"                                       >> $env:GITHUB_OUTPUT
           "name=AmazonMusic-SMTC-Bridge_$tag"              >> $env:GITHUB_OUTPUT
           "prerelease=$($prerelease.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-          Write-Host "$tag を AmazonMusic-SMTC-Bridge_$tag.msix（パッケージ版数 $base.$revision）としてリリースします"
+          Write-Host "Releasing $tag as AmazonMusic-SMTC-Bridge_$tag.msix (package version $base.$revision)"
 
-      - name: 既存リリースの確認
+      - name: Check existing release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -115,14 +115,14 @@ jobs:
           # A miss is the expected case; leaving gh's exit code in place would fail the step.
           $LASTEXITCODE = 0
           if ($exists) {
-            throw "リリース ${{ steps.v.outputs.tag }} は既に存在します。バージョンを上げるか、既存のリリースを削除してください。"
+            throw "Release ${{ steps.v.outputs.tag }} already exists. Bump the version or delete the existing release."
           }
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: ビルドとパッケージング
+      - name: Build and package
         shell: pwsh
         env:
           # Optional. Without them the script mints a throwaway self-signed cert,
@@ -145,7 +145,7 @@ jobs:
             $params.PfxPath      = $pfx
             $params.CertPassword = $env:SIGNING_PFX_PASSWORD
           } else {
-            Write-Warning "署名用の Secrets が未設定です。使い捨ての自己署名証明書で署名します。"
+            Write-Warning "Signing secrets are not configured. Signing with a throwaway self-signed certificate."
           }
           try {
             ./tools/pack-release.ps1 @params
@@ -154,52 +154,54 @@ jobs:
             if ($pfx -and (Test-Path $pfx)) { Remove-Item $pfx -Force }
           }
 
-      - name: リリースノートの作成
+      - name: Create release notes
         shell: pwsh
         run: |
           # Literal here-string: nothing in the markdown gets interpreted by PowerShell.
           $notes = @'
-          ## インストール
+          ## Installation
 
-          **`{NAME}_install.cmd` だけ**をダウンロードしてダブルクリックしてください。パッケージのダウンロード・証明書の信頼登録・インストールが順に実行されます（途中で管理者の確認画面が 1 回出ます）。
+          Download **only `{NAME}_install.cmd`** and double-click it. It downloads the package, trusts the certificate, and installs the app in sequence (one administrator confirmation appears along the way).
 
-          `.msix` と `.cer` は手動でインストールする場合のみ必要です。
+          The installer is in English by default and switches to Japanese automatically on Japanese Windows. You can force a language with `-Lang ja` or `-Lang en`.
+
+          The `.msix` and `.cer` are only needed for manual installation.
 
           <details>
-          <summary>手動でインストールする場合</summary>
+          <summary>Manual installation</summary>
 
-          1. 証明書を信頼する（管理者 PowerShell、初回のみ）
+          1. Trust the certificate (administrator PowerShell, first time only)
 
              ```powershell
              Import-Certificate -FilePath .\{NAME}.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
              ```
 
-          2. パッケージをインストールする（通常の PowerShell）
+          2. Install the package (normal PowerShell)
 
              ```powershell
              Add-AppxPackage .\{NAME}.msix
              ```
 
-          `.cer` のダブルクリックでは証明書が現在のユーザー用のストアに入るだけで、インストール時に `0x800B0109` になります。必ず上のコマンド（またはウィザードで「ローカル コンピューター」→「信頼された発行元」）を使ってください。
+          Double-clicking the `.cer` only imports the certificate into the current user's store and results in `0x800B0109` during installation. Always use the commands above (or choose "Local Machine" → "Trusted Publishers" in the wizard).
           </details>
 
-          詳細は README を参照してください。
+          See the README for details.
           '@
           $notes.Replace('{NAME}', '${{ steps.v.outputs.name }}') |
             Set-Content release-notes.md -Encoding utf8
 
-      - name: タグの作成
+      - name: Create tag
         shell: pwsh
         run: |
           $tag = '${{ steps.v.outputs.tag }}'
           if (git tag --list $tag) {
-            Write-Host "タグ $tag は既に存在するため、そのまま使用します"
+            Write-Host "Tag $tag already exists; using it as is"
           } else {
             git tag $tag
             git push origin $tag
           }
 
-      - name: リリースの公開
+      - name: Publish release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -217,4 +219,4 @@ jobs:
           )
           if ('${{ steps.v.outputs.prerelease }}' -eq 'true') { $argv += '--prerelease' }
           gh @argv
-          if ($LASTEXITCODE -ne 0) { throw "gh release create に失敗しました（終了コード $LASTEXITCODE）" }
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit code $LASTEXITCODE)" }

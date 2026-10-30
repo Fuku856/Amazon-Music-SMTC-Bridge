@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="ShowLog" xml:space="preserve">
+    <value>Show log</value>
+  </data>
+  <data name="SourceMenu" xml:space="preserve">
+    <value>Metadata source</value>
+  </data>
+  <data name="SourceAuto" xml:space="preserve">
+    <value>Automatic</value>
+  </data>
+  <data name="SourceAutoTip" xml:space="preserve">
+    <value>Use CDP when the debug port is available, otherwise read from notifications.</value>
+  </data>
+  <data name="SourceCdp" xml:space="preserve">
+    <value>Debug port only</value>
+  </data>
+  <data name="SourceCdpTip" xml:space="preserve">
+    <value>Never uses notifications. Does not request notification access.</value>
+  </data>
+  <data name="SourceNotification" xml:space="preserve">
+    <value>Notifications only</value>
+  </data>
+  <data name="SourceNotificationTip" xml:space="preserve">
+    <value>Does not restart Amazon Music or open a debug port. Track information is not updated while Amazon Music has focus.</value>
+  </data>
+  <data name="RestartWithDebugPort" xml:space="preserve">
+    <value>Restart with debug port</value>
+  </data>
+  <data name="AlwaysRunWithDebugPort" xml:space="preserve">
+    <value>Always run with debug port</value>
+  </data>
+  <data name="AlwaysRunWithDebugPortTip" xml:space="preserve">
+    <value>Restarts Amazon Music when it is found running without a debug port. This also applies when you start it manually.</value>
+  </data>
+  <data name="HideTrackChangeNotifications" xml:space="preserve">
+    <value>Hide Amazon Music track-change notifications</value>
+  </data>
+  <data name="HideTrackChangeNotificationsTip" xml:space="preserve">
+    <value>Hides Amazon Music track-change notifications and keeps them out of the notification center.</value>
+  </data>
+  <data name="SaveArtworkOffline" xml:space="preserve">
+    <value>Save artwork for offline use</value>
+  </data>
+  <data name="SaveArtworkOfflineTip" xml:space="preserve">
+    <value>Saves retrieved artwork so it can be shown even without a connection.</value>
+  </data>
+  <data name="LanguageMenu" xml:space="preserve">
+    <value>Language</value>
+  </data>
+  <data name="Exit" xml:space="preserve">
+    <value>Exit</value>
+  </data>
+</root>

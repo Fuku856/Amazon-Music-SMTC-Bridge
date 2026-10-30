@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AmazonMusicSmtc.Localization;
 
 namespace AmazonMusicSmtc;
 
@@ -31,6 +32,9 @@ internal sealed class Settings
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public MetadataSource MetadataSource { get; set; } = MetadataSource.Auto;
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public UiLanguage Language { get; set; } = UiLanguage.English;
 
     /// <summary>
     /// 0 means "not chosen yet": the bridge picks a random port from the dynamic
