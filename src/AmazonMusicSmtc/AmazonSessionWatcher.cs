@@ -21,6 +21,12 @@ internal sealed class AmazonSessionWatcher
 
     public event Action<GlobalSystemMediaTransportControlsSessionPlaybackStatus?>? PlaybackStatusChanged;
 
+    /// <summary>
+    /// Raised when Windows picks a different current session. The current session is
+    /// the one the media keys and most SMTC consumers target.
+    /// </summary>
+    public event Action? CurrentSessionChanged;
+
     public AmazonSessionWatcher(Action<string> log) => _log = log;
 
     public bool IsPresent => _session is not null;
@@ -29,8 +35,30 @@ internal sealed class AmazonSessionWatcher
     {
         _manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
         _manager.SessionsChanged += (_, _) => Rebind();
+        _manager.CurrentSessionChanged += (_, _) => CurrentSessionChanged?.Invoke();
         Rebind();
     }
+
+    /// <summary>
+    /// Whether Amazon Music itself, rather than the bridge, currently owns the
+    /// system's "most likely to control" session.
+    /// </summary>
+    public bool IsAmazonMusicCurrent()
+    {
+        try
+        {
+            var current = _manager?.GetCurrentSession();
+            return current is not null && IsAmazonSession(current.SourceAppUserModelId);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsAmazonSession(string sourceAppUserModelId) =>
+        sourceAppUserModelId.Contains(AmazonPaths.SessionIdFragment, StringComparison.OrdinalIgnoreCase) ||
+        sourceAppUserModelId.Contains(AmazonPaths.SessionIdExe, StringComparison.OrdinalIgnoreCase);
 
     private void Rebind()
     {
@@ -38,9 +66,7 @@ internal sealed class AmazonSessionWatcher
 
         var found = _manager?
             .GetSessions()
-            .FirstOrDefault(s =>
-                s.SourceAppUserModelId.Contains(AmazonPaths.SessionIdFragment, StringComparison.OrdinalIgnoreCase) ||
-                s.SourceAppUserModelId.Contains(AmazonPaths.SessionIdExe, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(s => IsAmazonSession(s.SourceAppUserModelId));
 
         // GetSessions() hands back a fresh projection wrapper every call, so
         // reference equality always fails. Comparing ids instead keeps SessionsChanged

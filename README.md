@@ -57,6 +57,10 @@ Amazon Music Local Storage      ──> track length (best effort)
 
 > **About the album name**: With CDP, the app reads `track.album.name` from the store. The second link shown at the bottom of the player is the **playback context (playlist name)**, not the album, so it is intentionally not read.
 
+### Session priority
+
+Windows chooses the "current" SMTC session (the one used by media keys and most SMTC consumers); there is no API to pin a session. If Windows switches to Amazon Music's own session, the bridge briefly unregisters and re-registers its session so it becomes the most recent source again. This is best effort: the media UI may flicker briefly, and Amazon Music can take over again on a later playback event.
+
 ---
 
 ## Requirements

@@ -52,11 +52,19 @@ internal sealed class BridgeForm : Form
     /// </summary>
     private static readonly TimeSpan ManualRelaunchGrace = TimeSpan.FromSeconds(45);
 
+    /// <summary>
+    /// Minimum gap between session re-registrations. Amazon Music can briefly take
+    /// the current-session slot on a track change; rebuilding on every event would
+    /// turn that into a visible loop.
+    /// </summary>
+    private static readonly TimeSpan SessionReassertCooldown = TimeSpan.FromSeconds(10);
+
     private readonly TextBox _log;
     private readonly NotifyIcon _tray;
     private readonly Settings _settings;
     private readonly ToolStripMenuItem[] _sourceItems;
     private readonly AmazonProcessWatcher _processes;
+    private readonly SemaphoreSlim _publishGate = new(1, 1);
 
     private readonly ToolStripMenuItem _showLogItem;
     private readonly ToolStripMenuItem _sourceMenu;
@@ -83,6 +91,9 @@ internal sealed class BridgeForm : Form
     private bool _exiting;
     private bool _polling;
     private bool _connecting;
+    private bool _reasserting;
+    private bool _publishing;
+    private DateTime _lastSessionReassertUtc = DateTime.MinValue;
 
     private bool UsesCdp => _settings.MetadataSource is MetadataSource.Auto or MetadataSource.Cdp;
 
@@ -397,6 +408,7 @@ internal sealed class BridgeForm : Form
 
             _amazon = new AmazonSessionWatcher(Write);
             _amazon.PlaybackStatusChanged += OnAmazonPlaybackStatusChanged;
+            _amazon.CurrentSessionChanged += OnCurrentSessionChanged;
             await _amazon.StartAsync();
 
             _cdp = new CdpWatcher(Write);
@@ -498,6 +510,10 @@ internal sealed class BridgeForm : Form
             // ahead of the CDP-only work below. This only detects Amazon Music
             // starting; an exit arrives from Process.Exited within a moment.
             _processes.Poll();
+
+            // Independent of the metadata source: Windows can hand the current
+            // session to Amazon Music in either mode.
+            _ = ReassertCurrentSessionIfNeededAsync();
 
             if (!UsesCdp || _cdp is null)
                 return;
@@ -647,6 +663,8 @@ internal sealed class BridgeForm : Form
         if (_publisher is null)
             return;
 
+        _publishing = true;
+        await _publishGate.WaitAsync();
         try
         {
             await _publisher.UpdateAsync(track);
@@ -674,10 +692,76 @@ internal sealed class BridgeForm : Form
         {
             Write($"!! publish failed: {ex.Message}");
         }
+        finally
+        {
+            _publishGate.Release();
+            _publishing = false;
+        }
+
+        // A track change is when Amazon Music most often grabs the current-session
+        // slot. Check right after publishing instead of waiting for the next tick.
+        _ = ReassertCurrentSessionIfNeededAsync();
     }
 
     private void OnAmazonPlaybackStatusChanged(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status) =>
         BeginInvoke(() => ApplyPlaybackStatus(status));
+
+    private void OnCurrentSessionChanged() =>
+        PostToUi(() => _ = ReassertCurrentSessionIfNeededAsync());
+
+    /// <summary>
+    /// Windows has no setter for the current SMTC session, so the only lever is to
+    /// register ours again. Do that only when Amazon Music actually holds the slot,
+    /// otherwise this would steal focus from unrelated players.
+    /// </summary>
+    private async Task ReassertCurrentSessionIfNeededAsync()
+    {
+        if (_exiting || _reasserting || _publishing || _publisher is not { IsEnabled: true } publisher)
+            return;
+
+        if (_currentTrack is not { } track || !_processes.IsRunning || _processes.IsRelaunching)
+            return;
+
+        if (DateTime.UtcNow - _lastSessionReassertUtc < SessionReassertCooldown)
+            return;
+
+        if (!_amazon.IsAmazonMusicCurrent())
+            return;
+
+        _reasserting = true;
+        _lastSessionReassertUtc = DateTime.UtcNow;
+        await _publishGate.WaitAsync();
+
+        try
+        {
+            Write("Amazon Music owns the current SMTC session; re-registering the bridge session");
+            await publisher.ReassertAsync(track);
+
+            if (!_processes.IsRunning)
+            {
+                ClearSession("Amazon Music exited while the SMTC session was being re-registered");
+                return;
+            }
+
+            ApplyPlaybackStatus(_amazon.GetPlaybackStatus());
+
+            if (!_amazon.IsPresent)
+                return;
+
+            var duration = track.Duration ?? DurationLookup.Find(track);
+            publisher.BeginTrack(duration);
+            Write("bridge SMTC session re-registered");
+        }
+        catch (Exception ex)
+        {
+            Write($"!! session re-register failed: {ex.Message}");
+        }
+        finally
+        {
+            _publishGate.Release();
+            _reasserting = false;
+        }
+    }
 
     private void ApplyPlaybackStatus(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status)
     {
