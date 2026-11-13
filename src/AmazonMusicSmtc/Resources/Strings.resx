@@ -91,6 +91,12 @@
   <data name="AlwaysRunWithDebugPortTip" xml:space="preserve">
     <value>Restarts Amazon Music when it is found running without a debug port. This also applies when you start it manually.</value>
   </data>
+  <data name="SessionPriority" xml:space="preserve">
+    <value>Session priority</value>
+  </data>
+  <data name="SessionPriorityTip" xml:space="preserve">
+    <value>Re-register the bridge when Amazon Music takes the current SMTC session. This can briefly flicker the media overlay.</value>
+  </data>
   <data name="HideTrackChangeNotifications" xml:space="preserve">
     <value>Hide Amazon Music track-change notifications</value>
   </data>

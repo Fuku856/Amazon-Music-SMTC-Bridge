@@ -51,6 +51,12 @@ internal sealed class Settings
     public bool AutoRelaunchAmazonMusic { get; set; } = true;
 
     /// <summary>
+    /// Re-register the bridge's SMTC session when Amazon Music takes the current
+    /// session slot. On by default; turning it off leaves Windows to choose.
+    /// </summary>
+    public bool SessionPriority { get; set; } = true;
+
+    /// <summary>
     /// Off by default: covers stay in memory only and nothing is written to disk.
     /// Turning it on trades disk for working offline and for skipping repeat downloads.
     /// </summary>

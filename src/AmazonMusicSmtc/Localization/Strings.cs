@@ -30,6 +30,10 @@ internal static class Strings
 
     public static string AlwaysRunWithDebugPortTip => Get(nameof(AlwaysRunWithDebugPortTip));
 
+    public static string SessionPriority => Get(nameof(SessionPriority));
+
+    public static string SessionPriorityTip => Get(nameof(SessionPriorityTip));
+
     public static string HideTrackChangeNotifications => Get(nameof(HideTrackChangeNotifications));
 
     public static string HideTrackChangeNotificationsTip => Get(nameof(HideTrackChangeNotificationsTip));

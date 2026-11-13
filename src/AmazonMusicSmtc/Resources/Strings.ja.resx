@@ -91,6 +91,12 @@
   <data name="AlwaysRunWithDebugPortTip" xml:space="preserve">
     <value>デバッグポート無しで動いている Amazon Music を見つけたら起動し直します。手動起動した場合も対象です。</value>
   </data>
+  <data name="SessionPriority" xml:space="preserve">
+    <value>セッションの優先順位</value>
+  </data>
+  <data name="SessionPriorityTip" xml:space="preserve">
+    <value>Amazon Music が現在の SMTC セッションを奪ったとき、ブリッジを再登録します。メディア表示が一瞬ちらつくことがあります。</value>
+  </data>
   <data name="HideTrackChangeNotifications" xml:space="preserve">
     <value>Amazon Music の曲変更通知を非表示</value>
   </data>

@@ -70,6 +70,7 @@ internal sealed class BridgeForm : Form
     private readonly ToolStripMenuItem _sourceMenu;
     private readonly ToolStripMenuItem _restartItem;
     private readonly ToolStripMenuItem _relaunchItem;
+    private readonly ToolStripMenuItem _sessionPriorityItem;
     private readonly ToolStripMenuItem _hideNotificationsItem;
     private readonly ToolStripMenuItem _saveArtworkItem;
     private readonly ToolStripMenuItem _languageMenu;
@@ -160,6 +161,23 @@ internal sealed class BridgeForm : Form
                 ApplySourceSetting();
             });
         menu.Items.Add(_relaunchItem);
+
+        _sessionPriorityItem = Toggle(
+            Strings.SessionPriority,
+            Strings.SessionPriorityTip,
+            _settings.SessionPriority,
+            value =>
+            {
+                _settings.SessionPriority = value;
+                Write($"session priority: {(value ? "on" : "off")}");
+
+                if (value)
+                {
+                    _lastSessionReassertUtc = DateTime.MinValue;
+                    _ = ReassertCurrentSessionIfNeededAsync();
+                }
+            });
+        menu.Items.Add(_sessionPriorityItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -276,6 +294,8 @@ internal sealed class BridgeForm : Form
         _restartItem.Text = Strings.RestartWithDebugPort;
         _relaunchItem.Text = Strings.AlwaysRunWithDebugPort;
         _relaunchItem.ToolTipText = Strings.AlwaysRunWithDebugPortTip;
+        _sessionPriorityItem.Text = Strings.SessionPriority;
+        _sessionPriorityItem.ToolTipText = Strings.SessionPriorityTip;
         _hideNotificationsItem.Text = Strings.HideTrackChangeNotifications;
         _hideNotificationsItem.ToolTipText = Strings.HideTrackChangeNotificationsTip;
         _saveArtworkItem.Text = Strings.SaveArtworkOffline;
@@ -716,7 +736,8 @@ internal sealed class BridgeForm : Form
     /// </summary>
     private async Task ReassertCurrentSessionIfNeededAsync()
     {
-        if (_exiting || _reasserting || _publishing || _publisher is not { IsEnabled: true } publisher)
+        if (!_settings.SessionPriority || _exiting || _reasserting || _publishing ||
+            _publisher is not { IsEnabled: true } publisher)
             return;
 
         if (_currentTrack is not { } track || !_processes.IsRunning || _processes.IsRelaunching)
