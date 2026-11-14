@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AmazonMusicSmtc.Localization;
 
 namespace AmazonMusicSmtc;
 
@@ -32,6 +33,9 @@ internal sealed class Settings
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public MetadataSource MetadataSource { get; set; } = MetadataSource.Auto;
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public UiLanguage Language { get; set; } = UiLanguage.English;
+
     /// <summary>
     /// 0 means "not chosen yet": the bridge picks a random port from the dynamic
     /// range on first run and saves it here. Anything that reaches this port can
@@ -45,6 +49,12 @@ internal sealed class Settings
     /// found running without one, including when the user starts it normally.
     /// </summary>
     public bool AutoRelaunchAmazonMusic { get; set; } = true;
+
+    /// <summary>
+    /// Re-register the bridge's SMTC session when Amazon Music takes the current
+    /// session slot. On by default; turning it off leaves Windows to choose.
+    /// </summary>
+    public bool SessionPriority { get; set; } = true;
 
     /// <summary>
     /// Off by default: covers stay in memory only and nothing is written to disk.

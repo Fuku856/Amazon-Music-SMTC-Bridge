@@ -1,307 +1,250 @@
 # AmazonMusic SMTC Bridge
 
-Windows 版 Amazon Music は SMTC (System Media Transport Controls) に一部の情報しか渡さないため、
-[Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) のような SMTC ベースの
-スクロブラーが正しく動作しません。
+[English](README.md) | [日本語](README.ja.md)
 
-このアプリは、**完全なメタデータを持つ SMTC セッションを別途発行する**ことでこれを補います。
+The Windows version of Amazon Music exposes only part of its information through SMTC (System Media Transport Controls), so SMTC-based scrobblers such as [Pano Scrobbler](https://github.com/kawaiiDango/pano-scrobbler) do not work correctly.
+
+This app compensates for that by **publishing a separate SMTC session with complete metadata**.
 
 ---
 
-## 何が問題なのか（実測）
+## What is the problem? (measured)
 
-対象: Amazon Music 9.5.2.2478 (Microsoft Store 版)
+Target: Amazon Music 9.5.2.2478 (Microsoft Store version)
 
-再生中に Amazon Music が SMTC に出している内容:
+What Amazon Music exposes through SMTC during playback:
 
-| フィールド | Amazon Music | 本アプリ |
+| Field | Amazon Music | This app |
 |---|---|---|
-| Title | ❌ 基本的に空（一部の曲のみ入る） | ✅ 取得 |
+| Title | ❌ Usually empty (only some tracks have it) | ✅ Retrieved |
 | Artist | ✅ | ✅ |
-| AlbumTitle | ❌ 常に空 | ✅ |
-| AlbumArtist | ❌ 常に空 | ✅ |
-| Thumbnail (アートワーク) | ❌ 常に無し | ✅ |
-| Timeline (曲の長さ) | ❌ 常に `00:00:00` | ✅ |
+| AlbumTitle | ❌ Always empty | ✅ |
+| AlbumArtist | ❌ Always empty | ✅ |
+| Thumbnail (artwork) | ❌ Always missing | ✅ |
+| Timeline (track length) | ❌ Always `00:00:00` | ✅ |
 
-Title が空の状態ではスクロブラーは曲を特定できず、スクロブルできません。
+With an empty Title, a scrobbler cannot identify the track and therefore cannot scrobble it.
 
-> **Title について**: 基本的に空です。ごく一部の曲では埋まっていることがありますが、
-> 3分間の低速再生テスト（25〜30秒に1回の曲送り）では**一度も入りませんでした**。
-> AlbumTitle / AlbumArtist / アートワーク / 曲の長さは**全サンプルで欠落**しています。
+> **About Title**: It is usually empty. A very small number of tracks do have it, but in a 3-minute slow-playback test (skipping tracks every 25–30 seconds) it was **never populated once**.
+> AlbumTitle / AlbumArtist / artwork / track length were **missing in every sample**.
 
-## 仕組み
+## How it works
 
-Amazon Music のセッションを修正することは**できません**。SMTC のメタデータは発行元プロセスの
-所有物で、`GlobalSystemMediaTransportControlsSessionManager` は読み取りと再生操作しか提供しません。
-そこで本アプリは自分名義のセッションを立てます。
+Amazon Music's session **cannot** be modified. SMTC metadata belongs to the publishing process, and `GlobalSystemMediaTransportControlsSessionManager` only provides read access and playback controls. This app therefore creates its own session.
 
-メタデータの取得元は 2 通りあり、既定では使えるほうが自動で選ばれます。
+There are two metadata sources, and by default the one that is available is selected automatically.
 
-**CDP（既定・推奨）** — Amazon Music は CEF (Chromium 79) 製なので、`--remote-debugging-port`
-付きで起動し直せばレンダラを直接読めます。取得元は内部の Vuex ストアです。
+**CDP (default, recommended)** — Amazon Music is built with CEF (Chromium 79), so if it is restarted with `--remote-debugging-port`, the renderer can be read directly. The source is the internal Vuex store.
 
 ```
-Amazon Music のレンダラ (CDP)  ──> 曲名 / アーティスト / アルバム / アートワーク
-                                    / 再生位置 / 曲の長さ（すべてミリ秒精度）
-Amazon Music の SMTC セッション ──> 再生・一時停止の状態
+Amazon Music renderer (CDP)  ──> title / artist / album / artwork
+                                  / playback position / track length (all at millisecond precision)
+Amazon Music SMTC session    ──> play / pause state
                                         │
                                         ▼
-                          本アプリの SMTC セッション（完全版）
+                          this app's SMTC session (complete)
                                         │
-                          操作ボタンは Amazon Music に中継
+                          control buttons are forwarded to Amazon Music
 ```
 
-**通知（フォールバック）** — 従来方式。Amazon Music を再起動せずに済みますが、
-Amazon Music にフォーカスがある間は曲が更新されません（後述）。
+**Notifications (fallback)** — the previous method. It does not require restarting Amazon Music, but tracks are not updated while Amazon Music has focus (see below).
 
 ```
-Amazon Music の曲変更トースト ──> 曲名 / アーティスト / アルバム / アートワーク
-Amazon Music の SMTC セッション ──> 再生・一時停止の状態
-Amazon Music の Local Storage  ──> 曲の長さ（ベストエフォート）
+Amazon Music track-change toast ──> title / artist / album / artwork
+Amazon Music SMTC session       ──> play / pause state
+Amazon Music Local Storage      ──> track length (best effort)
 ```
 
-> **アルバム名について**: CDP ではストアの `track.album.name` を読みます。
-> プレイヤー下部に表示されている 2 番目のリンクは**再生コンテキスト（プレイリスト名）**であって
-> アルバムではないため、意図的に読んでいません。
+> **About the album name**: With CDP, the app reads `track.album.name` from the store. The second link shown at the bottom of the player is the **playback context (playlist name)**, not the album, so it is intentionally not read.
+
+### Session priority
+
+Windows chooses the "current" SMTC session (the one used by media keys and most SMTC consumers); there is no API to pin a session. If Windows switches to Amazon Music's own session, the bridge briefly unregisters and re-registers its session so it becomes the most recent source again. This is best effort: the media UI may flicker briefly, and Amazon Music can take over again on a later playback event. You can turn this behavior off with **Session priority** in the tray menu.
 
 ---
 
-## 必要なもの
+## Requirements
 
-- Windows 10 1809 以降 / Windows 11
-- Amazon Music（Microsoft Store 版・exe 版のどちらでも）
+- Windows 10 1809 or later / Windows 11
+- Amazon Music (either the Microsoft Store version or the exe version)
 
-通知フォールバックを使う場合（既定の `自動` と `通知のみ`）は追加で:
+If you use the notification fallback (the default `Automatic` and `Notifications only`), you additionally need:
 
-- **Amazon Music の Windows 通知が ON であること**（設定 > システム > 通知 > Amazon Music）
-- 初回起動時の「通知へのアクセス」許可
+- **Amazon Music Windows notifications enabled** (Settings > System > Notifications > Amazon Music)
+- Permission for "access to notifications" on first launch
 
-取得方式を `デバッグポートのみ` にすると、通知は一切使われず上記の許可も要求されません。
+If you set the source to `Debug port only`, notifications are never used and the permission above is not requested.
 
-## インストール
+## Installation
 
-Release から **`AmazonMusic-SMTC-Bridge_v<バージョン>_install.cmd` だけ**をダウンロードし、ダブルクリックします。パッケージのダウンロード、証明書の信頼登録（管理者の確認画面が 1 回出ます）、インストールが順に実行され、アプリが起動します。
+Download **only `AmazonMusic-SMTC-Bridge_v<version>_install.cmd`** from Releases and double-click it. It downloads the package, trusts the certificate (one administrator confirmation), installs the app, and starts it.
 
-`.msix` を先にダウンロード済みの場合は、同じフォルダーに置けばそちらが使われます（ダウンロードは省略されます）。ただし同じバージョンの `.msix` に限ります。
+If you already downloaded the `.msix`, place it in the same folder and it will be used instead (the download is skipped). This only works for the `.msix` of the same version.
 
-### 手動でインストールする場合
+The installer is in English by default. On Japanese Windows it switches to Japanese automatically; you can force a language with `install.cmd -Lang ja` or `install.cmd -Lang en`.
 
-自己署名のため、先に証明書を信頼する必要があります。**管理者権限の PowerShell** で:
+### Manual installation
+
+Because the package is self-signed, the certificate must be trusted first. In **an administrator PowerShell**:
 
 ```powershell
 Import-Certificate -FilePath .\AmazonMusic-SMTC-Bridge_v1.0.0.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
 ```
 
-続いて**通常の（管理者でない）PowerShell** で:
+Then in **a normal (non-administrator) PowerShell**:
 
 ```powershell
 Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.0.0.msix
 ```
 
-`.cer` をダブルクリックする方法は避けてください。ウィザードの既定では証明書が現在のユーザー用のストアに入りますが、MSIX の署名検証はローカルコンピューターのストアしか見ないため、インストール時に `0x800B0109`（ルート証明書が信頼されていない）になります。ウィザードを使う場合は「ローカル コンピューター」→「信頼された発行元」を明示的に選んでください。
+Avoid double-clicking the `.cer`. The wizard defaults to importing the certificate into the current user's store, but MSIX signature validation only checks the local machine store, so installation fails with `0x800B0109` (root certificate not trusted). If you use the wizard, explicitly choose "Local Machine" → "Trusted Publishers".
 
-## 他のメディアアプリとの併用（重要）
+## Using it alongside other media apps (important)
 
-インストール後は SMTC セッションが**2つ**並びます。Amazon Music 本体のセッションは
-中身が空のままなので、SMTC を読むツール側では
-**Amazon Music 本体を無効化／ブロックし、本ブリッジを有効化**してください。
+After installation, **two** SMTC sessions appear side by side. The native Amazon Music session remains empty, so in the tool that reads SMTC, **disable/block Amazon Music itself and enable this bridge**.
 
 ### Pano Scrobbler
 
-何もしないと二重スクロブルになります。
+Otherwise you will scrobble twice.
 
-1. Pano Scrobbler のアプリ一覧で **Amazon Music を無効化**
-2. **AmazonMusic SMTC Bridge を有効化**
+1. In Pano Scrobbler's app list, **disable Amazon Music**
+2. **Enable AmazonMusic SMTC Bridge**
 
-Pano Scrobbler は未知のアプリを検出すると通知を出すので、そこから有効化できます。
+Pano Scrobbler shows a notification when it detects an unknown app, and you can enable the bridge from there.
 
 ### FluentFlyout
 
-「アプリのフィルタリング」で Amazon Music 本体をブロックしないと、空のセッションが
-フライアウトやタスクバーウィジェットに出てしまいます。ブロックリストに追加する文字列は、
-一覧から選べる `Amazon Music` ではなく **`AmazonMobileLLC` を手入力**するのが確実です。
+If you do not block Amazon Music itself in "App filtering", the empty session appears in the flyout and taskbar widget. The string to add to the blocklist is not `Amazon Music` (which you can select from the list) but **`AmazonMobileLLC`, typed manually**.
 
-Amazon Music を終了すると、本ブリッジのセッションも 1 秒ほどで消えます（強制終了でも同じです）。
-デバッグポート付きへの入れ替え中だけは例外で、再起動をまたいで表示が維持されます。
+When Amazon Music exits, the bridge's session also disappears within about one second (the same applies to force-killing it). The only exception is while switching to a debug port; in that case the display is kept across the restart.
 
-FluentFlyout の判定はアプリ名と AUMID の**部分一致**（`IsSessionAllowed`）です。
-`AmazonMobileLLC` は Amazon Music 本体の AUMID
-`AmazonMobileLLC.AmazonMusic_...!AmazonMobileLLC.AmazonMusic` にだけ一致し、
-本ブリッジ（`AmazonMusicSmtc_...!App` ／ 表示名 `AmazonMusic SMTC Bridge`）には一致しません。
+FluentFlyout matches app names and AUMIDs by **substring** (`IsSessionAllowed`). `AmazonMobileLLC` matches only Amazon Music's AUMID `AmazonMobileLLC.AmazonMusic_...!AmazonMobileLLC.AmazonMusic`, not this bridge (`AmazonMusicSmtc_...!App` / display name `AmazonMusic SMTC Bridge`).
 
-> **v1.1.0 以前を使っている場合**
-> 旧バージョンの表示名は `Amazon Music SMTC Bridge` でした。FluentFlyout v2.14.0 は
-> セッション名を `shell:AppsFolder` から解決するようになった（Firefox 系ブラウザ対応の
-> 副作用）ため、ブロックリストの `Amazon Music` がブリッジ側にも一致してしまい、
-> ウィジェットから消えます。本アプリを v1.2.0 以降に更新するか、
-> ブロックリストを上記の `AmazonMobileLLC` に書き換えてください。
-> なお FluentFlyout はアプリ名を静的にキャッシュするため、
-> どちらの対処でも **FluentFlyout の再起動が必要**です。
+> **If you are using v1.1.0 or earlier**
+> The old version's display name was `Amazon Music SMTC Bridge`. Because FluentFlyout v2.14.0 now resolves session names from `shell:AppsFolder` (a side effect of adding Firefox-based browser support), the blocklist entry `Amazon Music` also matches the bridge and it disappears from the widget. Update this app to v1.2.0 or later, or change the blocklist entry to `AmazonMobileLLC` as described above.
+> Note that FluentFlyout caches app names statically, so **FluentFlyout must be restarted** for either workaround to take effect.
 
-## 設定
+## Settings
 
-タスクトレイのアイコンを右クリック:
+Right-click the taskbar tray icon:
 
-- **ログを表示** — 取得状況のログ（不具合報告用）
-- **曲情報の取得方式**
-  - `自動`（既定）— デバッグポートが使えれば CDP、駄目なら通知
-  - `デバッグポートのみ` — CDP のみ。通知リスナーを一切使わない
-  - `通知のみ` — 従来方式。Amazon Music を再起動せず、デバッグポートも開かない
-- **デバッグポート付きで再起動** — 手動で入れ替える
-- **常にデバッグポート付きで動かす** — 既定 ON。デバッグポート無しで動いている
-  Amazon Music を見つけたら起動し直します（ユーザーが自分で起動した場合も含む）
-- **読み取った通知を非表示** — 既定 OFF。Amazon Music の通知は消えずに
-  通知センターに溜まり続けるため、処理後に自動で消したい場合に ON にします
-- **ジャケットをオフライン用に保存** — 既定 OFF。ON にするとダウンロードしたジャケットを
-  ローカルに保存し、オフラインでも表示できるようにします（最大 100 件）
+- **Show log** — retrieval log (for bug reports)
+- **Metadata source**
+  - `Automatic` (default) — CDP if the debug port is available, otherwise notifications
+  - `Debug port only` — CDP only. Never uses the notification listener
+  - `Notifications only` — previous method. Does not restart Amazon Music or open a debug port
+- **Restart with debug port** — switch manually
+- **Always run with debug port** — default ON. If Amazon Music is found running without a debug port, it is restarted (including when you started it yourself)
+- **Hide Amazon Music track-change notifications** — default OFF. Amazon Music notifications are not removed and keep accumulating in the notification center, so enable this to remove them automatically after processing
+- **Save artwork for offline use** — default OFF. When ON, downloaded artwork is stored locally so it can be displayed offline (up to 100 items)
+- **Language** — `English` / `日本語`. Default English; the change takes effect immediately
 
-自動起動は既定で有効です。設定 > アプリ > スタートアップ から切り替えられます。
+Auto-start is enabled by default. It can be toggled in Settings > Apps > Startup.
 
-### デバッグポートについて（重要）
+### About the debug port (important)
 
-CDP を使う設定では Amazon Music が `--remote-debugging-port` 付きで動きます。この状態では
-**同じ PC 上の任意のプロセスが認証なしで Amazon Music のレンダラに接続し、
-ログイン済みセッションで任意の JavaScript を実行できます。**
+With a CDP setting, Amazon Music runs with `--remote-debugging-port`. In that state, **any process on the same PC can connect to Amazon Music's renderer without authentication and run arbitrary JavaScript in the signed-in session.**
 
-緩和として、慣例的な 9222 ではなく動的レンジからランダムに選んだポートを初回に決めて
-`settings.json` に保存します。ただしこれは**緩和であって解決ではありません**
-（ポートスキャンと `/json/version` で特定は可能です）。
-これが許容できない場合は `通知のみ` を選んでください。
+As a mitigation, the app chooses a random port from the dynamic range on first run rather than the conventional 9222, and stores it in `settings.json`. This is **a mitigation, not a solution** (it can still be found by port scanning and `/json/version`).
+If that is not acceptable, choose `Notifications only`.
 
 ---
 
-## 制限事項
+## Limitations
 
-CDP 方式（既定）:
+CDP method (default):
 
-- **Amazon Music を起動し直します。** デバッグポート無しで動いていると入れ替えるため、
-  再生が中断され、再生位置は曲の先頭に戻ります。ユーザーが自分で起動した直後も対象です
-  （検知から接続完了まで実測 13 秒）。煩わしい場合は
-  **常にデバッグポート付きで動かす** を OFF にしてください
-- **デバッグポートのセキュリティ上のトレードオフ**があります（上記）
-- **Amazon Music の内部実装に依存します。** 現在は CEF 79 / Vue 2 の Vuex ストアを読んでいます。
-  アプリ更新でストアが取れなくなった場合は DOM 読み取りに落ちますが、
-  そのときは**アルバム名が空になります**（DOM にはプレイリスト名しか無いため、
-  誤った値を出すより空にしています）。さらに駄目なら通知方式に落ちます
-- **曲変更の検知は最大 2 秒遅れます。** 起動中のアプリにプロトコルドメインを有効化したり
-  スクリプトを常駐させたりすると Amazon Music が起動しなくなるため、
-  読み取り専用のポーリングに徹しています
+- **Amazon Music is restarted.** If it is running without a debug port, it is replaced, so playback is interrupted and the playback position returns to the start of the track. This also applies immediately after you start it yourself (measured 13 seconds from detection to connection). If this is annoying, turn **Always run with debug port** OFF
+- **There is a security trade-off with the debug port** (see above)
+- **This depends on Amazon Music's internal implementation.** It currently reads the Vuex store of CEF 79 / Vue 2. If an app update makes the store unavailable, it falls back to reading the DOM, but in that case **the album name becomes empty** (the DOM only contains the playlist name, so the app returns empty rather than an incorrect value). If that also fails, it falls back to notifications
+- **Track changes can be detected up to 2 seconds late.** Enabling protocol domains or keeping a script resident in the running app prevents Amazon Music from starting, so the app deliberately uses read-only polling
 
-通知方式:
+Notifications method:
 
-- **Amazon Music の通知が OFF だと動きません**
-- **Amazon Music のウィンドウを前面にしたままだと曲が更新されません。** Amazon Music は
-  自分にフォーカスがあるとき曲変更のトーストを**発行しません**（表示されないのではなく、
-  作られていません）。この状態では Amazon Music 自身の SMTC も曲名を出さないため、
-  取得できる情報が何もありません。**これが CDP 方式を用意した理由です**
-- **曲の長さはベストエフォート。** Amazon Music のカタログキャッシュに該当曲が無い場合は
-  長さ無しになります
-- **再生位置は推定です。** 曲変更時刻からの経過時間で計算しているため、
-  Amazon Music 側でシークすると次の曲変更まで位置がずれます
+- **It does not work if Amazon Music notifications are OFF**
+- **Tracks are not updated while the Amazon Music window is in the foreground.** When Amazon Music has focus, it **does not publish** track-change toasts (they are not merely hidden; they are never created). In that state Amazon Music's own SMTC also does not expose the title, so there is no information to retrieve. **This is the reason the CDP method exists**
+- **Track length is best effort.** If the track is not in Amazon Music's catalog cache, no length is available
+- **Playback position is estimated.** It is calculated from the time elapsed since the track change, so seeking in Amazon Music causes the position to be wrong until the next track change
 
-共通:
+Common:
 
-- **Amazon Music が動いていない間は何も発行しません。** プロセスの生死をそのまま見ているため、
-  通常終了でも強制終了でもセッションが残りません。デバッグポート付きへの入れ替え中のみ例外で、
-  30〜45 秒の猶予が経過するまで表示を維持します。この猶予は時間で切れるだけなので、
-  入れ替え直後にすぐ Amazon Music を終了した場合、セッションが消えるのは猶予の終了時点です
-  （入れ替えに失敗した場合も同様に、猶予が切れた時点で消えます）
-- **シーク操作は受け付けません。** CDP 方式では再生位置を正確に*表示*できますが、
-  スクロバーからのシーク要求を Amazon Music に中継する機能はありません
-- 集中モード（フォーカスアシスト）有効時の挙動は未検証です
+- **Nothing is published while Amazon Music is not running.** The app watches the process lifecycle directly, so the session does not remain after a normal exit or a force-kill. The only exception is while switching to a debug port, when the display is kept for 30–45 seconds. This grace period is purely time-based, so if you exit Amazon Music immediately after the switch, the session disappears when the grace period ends (the same applies if the switch fails)
+- **Seek operations are not accepted.** With CDP the app can accurately *display* the playback position, but it does not forward seek requests from scrobblers to Amazon Music
+- Behavior with Focus Assist (concentration mode) enabled has not been verified
 
-## 検証状況
+## Verification status
 
-実機で確認済み（Amazon Music 9.5.2.0 / CEF 79.1.38 / Store 版）:
+Confirmed on real hardware (Amazon Music 9.5.2.0 / CEF 79.1.38 / Store version):
 
-- **Amazon Music を最前面に固定したまま曲送りしても追随すること**。同じ時間帯に
-  通知用アートワークファイルの更新時刻が一切動かないこと（＝トーストが出ていないこと）も併せて確認
-- アルバム名がプレイリスト名ではなく実アルバムになること
-- CDP からの再生位置・曲の長さが SMTC タイムラインに乗ること
-- ジャケットの取得と表示（CDN から取得、認証不要）
-- **Amazon Music を通常起動したときの自動入れ替え**（検知から接続完了まで 13 秒）
-- 既に別のポートで動いている Amazon Music を `DevToolsActivePort` から発見して再利用すること
-  （不要な再起動をしない）
-- 起動に失敗し続けたときに 3 回で断念してログを残すこと
-- `KeepArtworkCache` が既定 OFF のときディスクに何も書かないこと
-- Amazon Music が動いていないときにブリッジが勝手に起動しないこと
-- 通知からの曲名・アーティスト・アルバム・アートワーク取得
-- 起動時のキャッチアップ（起動直後に再生中の曲を即反映）
-- 再生・一時停止状態の同期
-- ブリッジ側セッションからの Pause / Play が Amazon Music に中継されること
-- 曲の長さの取得と SMTC タイムラインへの反映
-- 署名済み `.msix` の生成
-- ログウィンドウを閉じても常駐が維持されること（× / Alt+F4 の両経路を実測）
+- **The bridge follows track changes even while Amazon Music is pinned in the foreground.** It was also confirmed that the notification artwork file's modification time did not change at all during the same period (i.e. no toast was being produced)
+- The album name is the actual album, not the playlist name
+- Playback position and track length from CDP appear in the SMTC timeline
+- Artwork retrieval and display (fetched from the CDN, no authentication required)
+- **Automatic replacement when Amazon Music is started normally** (13 seconds from detection to connection)
+- Discovering an already-running Amazon Music on another port through `DevToolsActivePort` and reusing it (no unnecessary restart)
+- Giving up after 3 failed start attempts and leaving a log entry
+- `KeepArtworkCache` writes nothing to disk when it is OFF (the default)
+- The bridge does not start on its own while Amazon Music is not running
+- Retrieving title / artist / album / artwork from notifications
+- Catch-up at startup (immediately reflecting the currently playing track)
+- Synchronizing play / pause state
+- Pause / Play from the bridge's session being forwarded to Amazon Music
+- Retrieving track length and reflecting it in the SMTC timeline
+- Generating a signed `.msix`
+- The app stays resident after closing the log window (tested via both × and Alt+F4)
 
-未確認:
+Not yet verified:
 
-- **Amazon Music 終了時にブリッジのセッションが消えること**（通常終了・強制終了・通知のみモード）。
-  実装済みだが実機未検証
-- **入れ替えによる再起動中に表示が維持されること**。実装済みだが実機未検証
-- 署名済み `.msix` のクリーンな環境でのインストール（開発機では登録済みレイアウトで検証）
-- Pano Scrobbler での実際のスクロブル
-- Amazon Music の非 Store 版（exe 版）— パス解決は実装済みだが未実機検証。
-  なお CDP 方式の起動経路は Store 版（MSIX）専用です
-- ポッドキャスト／ビデオ再生時のメタデータ
-- 長時間の連続運用（数時間規模）での安定性
+- **The bridge session disappearing when Amazon Music exits** (normal exit, force-kill, notifications-only mode). Implemented but not verified on real hardware
+- **The display being kept during a restart caused by replacement.** Implemented but not verified on real hardware
+- Installing the signed `.msix` in a clean environment (verified on the development machine using a registered layout)
+- Actual scrobbling with Pano Scrobbler
+- The non-Store (exe) version of Amazon Music — path resolution is implemented but not verified on real hardware. The CDP startup path is Store (MSIX) only
+- Metadata during podcast / video playback
+- Stability during long continuous operation (several hours)
 
 ---
 
-## ソースからのビルド
+## Building from source
 
-必要: .NET 10 SDK、開発者モード ON
+Requirements: .NET 10 SDK, Developer Mode ON
 
 ```powershell
 .\tools\build-dev.ps1
 ```
 
-署名なしでパッケージ ID を得られる `Add-AppxPackage -Register` を使うため、開発中の反復では
-証明書は不要です（`userNotificationListener` capability はパッケージ ID が無いと宣言できないため、
-未パッケージの exe では成立しません）。
+Because it uses `Add-AppxPackage -Register`, which provides a package identity without signing, no certificate is needed for iterative development (the `userNotificationListener` capability cannot be declared without a package identity, so an unpackaged exe does not work).
 
-配布用の署名済みパッケージ:
+Signed package for distribution:
 
 ```powershell
 .\tools\pack-release.ps1 -Version 1.0.0 -OutputName AmazonMusic-SMTC-Bridge_v1.0.0
 ```
 
-### リリース（GitHub Actions）
+### Releases (GitHub Actions)
 
-GitHub の **Actions > リリース > Run workflow** から手動で実行します。バージョンの指定方法は2通り:
+Run the workflow manually from GitHub under **Actions > Release > Run workflow**. There are two ways to specify the version:
 
-- **新規タグを作成**: ブランチを選び、「バージョン」に `v1.0.0` と入力（`v` を省いて `1.0.0` と入力しても同じで、
-  タグは必ず `v1.0.0` になります）
-- **既存タグを選択**: 「Use workflow from」で既存タグを選び、「バージョン」は空のまま
+- **Create a new tag**: choose a branch and enter `v1.0.0` in "Version" (entering `1.0.0` without the `v` is equivalent; the tag will always be `v1.0.0`)
+- **Select an existing tag**: choose an existing tag under "Use workflow from" and leave "Version" empty
 
-コマンドラインからも実行できます（ワークフロー名ではなくファイル名で指定します）:
+It can also be run from the command line (specify the file name, not the workflow name):
 
 ```powershell
 gh workflow run release.yml -f version=1.0.0
 ```
 
-ワークフローがビルド・署名・パッケージングを行い、`AmazonMusic-SMTC-Bridge_v1.0.0.msix`、
-`AmazonMusic-SMTC-Bridge_v1.0.0.cer`、`AmazonMusic-SMTC-Bridge_v1.0.0_install.cmd` を
-Release に添付します。
+The workflow builds, signs, and packages the app, then attaches `AmazonMusic-SMTC-Bridge_v1.0.0.msix`, `AmazonMusic-SMTC-Bridge_v1.0.0.cer`, and `AmazonMusic-SMTC-Bridge_v1.0.0_install.cmd` to the release.
 
-#### プレリリース（beta）
+#### Pre-releases (beta)
 
-`v1.2.0-beta1` のようにプレリリース識別子を付けられます。この形式で指定したものは
-「プレリリースとして公開」チェックの有無にかかわらず、必ずプレリリースとして公開されます。
+You can add a pre-release identifier such as `v1.2.0-beta1`. A version specified in this form is always published as a pre-release, regardless of the "Publish as pre-release" checkbox.
 
-MSIX の `Identity/Version` は **4部構成の数値のみ**で、`-beta1` のような文字列を持てません。
-そのため識別子は**まるごとリビジョン 1 個に畳まれます**。使える識別子は
-**`alpha` / `beta` / `rc` に 1〜9999 の番号を付けたもの**に限られます
-（`-beta` のように番号が無いもの、`-rc.1` のように区切りが入るもの、
-`-preview1` のような未定義の識別子はエラーになります）。
+The MSIX `Identity/Version` is **numeric only and has four parts**, so it cannot contain a string like `-beta1`. The identifier is therefore **folded entirely into a single revision number**. The only allowed identifiers are **`alpha` / `beta` / `rc` followed by a number from 1 to 9999** (an identifier without a number such as `-beta`, one with a separator such as `-rc.1`, or an undefined identifier such as `-preview1` produces an error).
 
-リビジョンは **系列ごとに 1 万番台を割り当て、そこに番号を足したもの**です
-（`alpha` → 1万台、`beta` → 2万台、`rc` → 3万台）。番号だけを使うと
-`-alpha1` と `-beta1` が同じパッケージ版数になり、片方を入れた環境にもう片方を
-インストールすると `0x80073CFB`（同一バージョンは置換不可）で失敗します。
-このエラーは `install.cmd` でも回復できず、アンインストール（＝設定とキャッシュの消失）が
-必要になるため、系列まで含めて版数に反映しています。
+Revisions are allocated **per series in blocks of ten thousand, plus the number** (`alpha` → 10000s, `beta` → 20000s, `rc` → 30000s). If only the number were used, `-alpha1` and `-beta1` would have the same package version, and installing one on a machine that already has the other would fail with `0x80073CFB` (the same version cannot be replaced). `install.cmd` cannot recover from this error either, and uninstalling (which loses settings and cache) would be required, so the series is included in the version number.
 
-| 入力 | タグ・資産名 | パッケージ版数 |
+| Input | Tag / asset name | Package version |
 |---|---|---|
 | `v1.2.0-alpha1` | `v1.2.0-alpha1` | `1.2.0.10001` |
 | `v1.2.0-beta1` | `v1.2.0-beta1` | `1.2.0.20001` |
@@ -309,30 +252,24 @@ MSIX の `Identity/Version` は **4部構成の数値のみ**で、`-beta1` の�
 | `v1.2.0-rc1` | `v1.2.0-rc1` | `1.2.0.30001` |
 | `v1.2.0` | `v1.2.0` | `1.2.0.0` |
 
-> **beta から最終版へ更新する場合**
-> 最終版のリビジョンは `0` なので、beta より数値としては小さくなります。
-> `install.cmd` は `-ForceUpdateFromAnyVersion` で自動的に再試行するため
-> そのまま更新できますが、**手動で `Add-AppxPackage` する場合は同スイッチが必要**です。
+> **Updating from beta to the final release**
+> The final release's revision is `0`, so it is numerically lower than beta. `install.cmd` automatically retries with `-ForceUpdateFromAnyVersion`, so it can update in place, but **if you use `Add-AppxPackage` manually you need the same switch**:
 >
 > ```powershell
 > Add-AppxPackage .\AmazonMusic-SMTC-Bridge_v1.2.0.msix -ForceUpdateFromAnyVersion
 > ```
 
-インストーラーは `pkg\install.cmd` を雛形として、そのリリースのパッケージのダウンロード URL・
-ファイル名・署名証明書の thumbprint を埋め込んだものです。埋め込まれた thumbprint と一致しない
-`.msix` はインストールを中止します。**リリースごとに専用のファイル**になるため、ファイル名にも
-バージョンを含めています（生成は `pack-release.ps1` が自動で行います）。
+The installer is based on `pkg\install.cmd` and embeds the release's package download URL, file name, and signing certificate thumbprint. An `.msix` that does not match the embedded thumbprint will not be installed. **Each release gets its own file**, so the file name includes the version (generated automatically by `pack-release.ps1`).
 
-署名には以下の Secrets に登録された固定の証明書（`CN=AmazonMusicSmtc`、有効期限 2036-08-01）を使います:
+Signing uses a fixed certificate registered in the following Secrets (`CN=AmazonMusicSmtc`, valid until 2036-08-01):
 
-- `SIGNING_PFX_BASE64` — `.pfx` を Base64 にしたもの
-- `SIGNING_PFX_PASSWORD` — その `.pfx` のパスワード
+- `SIGNING_PFX_BASE64` — the `.pfx` encoded as Base64
+- `SIGNING_PFX_PASSWORD` — the password for that `.pfx`
 
-これらが未設定だと実行のたびに新しい自己署名証明書が作られ、ユーザーは更新のたびに別の証明書を
-信頼し直すことになります。証明書を差し替える場合は両方をまとめて更新してください:
+If these are not set, a new self-signed certificate is created on every run, and users would have to trust a different certificate on every update. If you replace the certificate, update both values together:
 
 ```powershell
-$pw  = '<新しいパスワード>'
+$pw  = '<new password>'
 $pfx = "$env:TEMP\signing.pfx"
 Export-PfxCertificate -Cert Cert:\CurrentUser\My\<thumbprint> -FilePath $pfx `
   -Password (ConvertTo-SecureString $pw -Force -AsPlainText)
@@ -341,7 +278,7 @@ gh secret set SIGNING_PFX_PASSWORD --body $pw
 Remove-Item $pfx
 ```
 
-SMTC の中身を確認する検証スクリプト:
+A diagnostic script for inspecting the contents of SMTC:
 
 ```powershell
 .\tools\dump-smtc.ps1

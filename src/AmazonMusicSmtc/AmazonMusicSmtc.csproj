@@ -12,6 +12,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>AmazonMusicSmtc</AssemblyName>
     <RootNamespace>AmazonMusicSmtc</RootNamespace>
+    <NeutralLanguage>en</NeutralLanguage>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

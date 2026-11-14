@@ -1,3 +1,5 @@
+using AmazonMusicSmtc.Localization;
+using AmazonMusicSmtc.UI;
 using Windows.Media;
 using Windows.Media.Control;
 
@@ -42,7 +44,7 @@ internal static class Program
 /// Hidden host window. SMTC is acquired per-HWND, so the bridge needs a real
 /// window even though it never shows one during normal operation.
 /// </summary>
-internal sealed class BridgeForm : Form
+internal sealed class BridgeForm : DarkChromeForm
 {
     /// <summary>
     /// How long a manual restart is given before the process watcher is allowed to
@@ -51,11 +53,33 @@ internal sealed class BridgeForm : Form
     /// </summary>
     private static readonly TimeSpan ManualRelaunchGrace = TimeSpan.FromSeconds(45);
 
-    private readonly TextBox _log;
+    /// <summary>
+    /// Minimum gap between session re-registrations. Amazon Music can briefly take
+    /// the current-session slot on a track change; rebuilding on every event would
+    /// turn that into a visible loop.
+    /// </summary>
+    private static readonly TimeSpan SessionReassertCooldown = TimeSpan.FromSeconds(10);
+
+    private readonly DarkLogBox _log;
+    private readonly Label _logTitle;
+    private readonly Label _logHint;
     private readonly NotifyIcon _tray;
     private readonly Settings _settings;
     private readonly ToolStripMenuItem[] _sourceItems;
     private readonly AmazonProcessWatcher _processes;
+    private readonly SemaphoreSlim _publishGate = new(1, 1);
+
+    private readonly ToolStripMenuItem _showLogItem;
+    private readonly ToolStripMenuItem _sourceMenu;
+    private readonly ToolStripMenuItem _restartItem;
+    private readonly ToolStripMenuItem _relaunchItem;
+    private readonly ToolStripMenuItem _sessionPriorityItem;
+    private readonly ToolStripMenuItem _hideNotificationsItem;
+    private readonly ToolStripMenuItem _saveArtworkItem;
+    private readonly ToolStripMenuItem _languageMenu;
+    private readonly ToolStripMenuItem _englishItem;
+    private readonly ToolStripMenuItem _japaneseItem;
+    private readonly ToolStripMenuItem _exitItem;
 
     private AmazonSessionWatcher _amazon = null!;
     private ArtworkProvider _artwork = null!;
@@ -71,6 +95,9 @@ internal sealed class BridgeForm : Form
     private bool _exiting;
     private bool _polling;
     private bool _connecting;
+    private bool _reasserting;
+    private bool _publishing;
+    private DateTime _lastSessionReassertUtc = DateTime.MinValue;
 
     private bool UsesCdp => _settings.MetadataSource is MetadataSource.Auto or MetadataSource.Cdp;
 
@@ -79,90 +106,194 @@ internal sealed class BridgeForm : Form
     public BridgeForm()
     {
         Text = Program.AppName;
-        Width = 1000;
-        Height = 560;
+        ClientSize = new Size(1000, 620);
         // A normal taskbar window: the log can be minimised and restored like
         // anything else. It simply starts hidden - see SetVisibleCore.
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-
-        _log = new TextBox
-        {
-            Multiline = true,
-            ReadOnly = true,
-            Dock = DockStyle.Fill,
-            ScrollBars = ScrollBars.Both,
-            WordWrap = false,
-            Font = new Font("Consolas", 9f),
-        };
-        Controls.Add(_log);
+        MinimumSize = new Size(760, 460);
 
         _settings = Settings.Load();
+        Strings.Apply(_settings.Language);
+
+        _logTitle = new Label
+        {
+            Text = Strings.LogTitle,
+            Dock = DockStyle.Fill,
+            Font = Theme.CaptionFont,
+            ForeColor = Theme.TextMuted,
+            BackColor = Theme.LogBackground,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Margin = Padding.Empty,
+        };
+
+        _log = new DarkLogBox
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 4, 0, 0),
+            AccessibleName = Strings.LogTitle,
+        };
+
+        var cardLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Theme.LogBackground,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+        };
+        cardLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        cardLayout.Controls.Add(_logTitle, 0, 0);
+        cardLayout.Controls.Add(_log, 0, 1);
+
+        var card = new RoundedPanel
+        {
+            Dock = DockStyle.Fill,
+            FillColor = Theme.LogBackground,
+            StrokeColor = Theme.BorderSoft,
+            CornerRadius = 12,
+            Padding = new Padding(16, 12, 16, 16),
+        };
+        card.Controls.Add(cardLayout);
+
+        _logHint = new Label
+        {
+            Text = Strings.LogHint,
+            Dock = DockStyle.Bottom,
+            Height = 30,
+            Font = Theme.BodyFont,
+            ForeColor = Theme.TextMuted,
+            BackColor = Theme.Background,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var content = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Theme.Background,
+            Padding = new Padding(20, 12, 20, 16),
+        };
+        content.Controls.Add(card);
+        content.Controls.Add(_logHint);
+        Controls.Add(content);
+
+        UpdateChromeAccessibility();
 
         // Built here rather than in InitializeAsync so PublishTrack can never see a
         // null gate. It reports "not running" until the first poll, which is the
         // safe direction to be wrong in.
         _processes = new AmazonProcessWatcher(Write, PostToUi);
 
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("ログを表示", null, (_, _) => ShowLog());
+        var menuRenderer = new DarkMenuRenderer();
+        ToolStripManager.Renderer = menuRenderer;
+
+        var menu = new ContextMenuStrip
+        {
+            Renderer = menuRenderer,
+            BackColor = Theme.Surface,
+            ForeColor = Theme.Text,
+            Font = Theme.BodyFont,
+            ShowImageMargin = false,
+            ShowCheckMargin = true,
+            ShowItemToolTips = true,
+            Padding = new Padding(4, 6, 4, 6),
+        };
+
+        _showLogItem = new ToolStripMenuItem(Strings.ShowLog);
+        _showLogItem.Click += (_, _) => ShowLog();
+        menu.Items.Add(_showLogItem);
         menu.Items.Add(new ToolStripSeparator());
 
         _sourceItems =
         [
-            SourceItem(MetadataSource.Auto, "自動",
-                "デバッグポートが使えるときは CDP、使えないときは通知から取得します。"),
-            SourceItem(MetadataSource.Cdp, "デバッグポートのみ",
-                "通知を一切使いません。通知へのアクセス許可も要求しません。"),
-            SourceItem(MetadataSource.Notification, "通知のみ",
-                "Amazon Music を再起動せず、デバッグポートも開きません。Amazon Music にフォーカス中は曲情報が更新されません。"),
+            SourceItem(MetadataSource.Auto, Strings.SourceAuto, Strings.SourceAutoTip),
+            SourceItem(MetadataSource.Cdp, Strings.SourceCdp, Strings.SourceCdpTip),
+            SourceItem(MetadataSource.Notification, Strings.SourceNotification, Strings.SourceNotificationTip),
         ];
 
-        var sourceMenu = new ToolStripMenuItem("曲情報の取得方式");
-        sourceMenu.DropDownItems.AddRange(_sourceItems);
-        menu.Items.Add(sourceMenu);
+        _sourceMenu = new ToolStripMenuItem(Strings.SourceMenu);
+        _sourceMenu.DropDownItems.AddRange(_sourceItems);
+        menu.Items.Add(_sourceMenu);
 
-        menu.Items.Add("デバッグポート付きで再起動", null, (_, _) => RestartAmazonMusic());
+        _restartItem = new ToolStripMenuItem(Strings.RestartWithDebugPort);
+        _restartItem.Click += (_, _) => RestartAmazonMusic();
+        menu.Items.Add(_restartItem);
 
-        var relaunchItem = Toggle(
-            "常にデバッグポート付きで動かす",
-            "デバッグポート無しで動いている Amazon Music を見つけたら起動し直します。手動起動した場合も対象です。",
+        _relaunchItem = Toggle(
+            Strings.AlwaysRunWithDebugPort,
+            Strings.AlwaysRunWithDebugPortTip,
             _settings.AutoRelaunchAmazonMusic,
             value =>
             {
                 _settings.AutoRelaunchAmazonMusic = value;
                 ApplySourceSetting();
             });
-        menu.Items.Add(relaunchItem);
+        menu.Items.Add(_relaunchItem);
+
+        _sessionPriorityItem = Toggle(
+            Strings.SessionPriority,
+            Strings.SessionPriorityTip,
+            _settings.SessionPriority,
+            value =>
+            {
+                _settings.SessionPriority = value;
+                Write($"session priority: {(value ? "on" : "off")}");
+
+                if (value)
+                {
+                    _lastSessionReassertUtc = DateTime.MinValue;
+                    _ = ReassertCurrentSessionIfNeededAsync();
+                }
+            });
+        menu.Items.Add(_sessionPriorityItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
-        menu.Items.Add(Toggle(
-            "Amazon Music の曲変更通知を非表示",
-            "Amazon Music の曲変更通知を非表示にして、通知センターにも表示しない。",
+        _hideNotificationsItem = Toggle(
+            Strings.HideTrackChangeNotifications,
+            Strings.HideTrackChangeNotificationsTip,
             _settings.RemoveNotificationsAfterProcessing,
             value =>
             {
                 _settings.RemoveNotificationsAfterProcessing = value;
                 if (_notifications is not null)
                     _notifications.RemoveAfterProcessing = value;
-            }));
+            });
+        menu.Items.Add(_hideNotificationsItem);
 
-        menu.Items.Add(Toggle(
-            "ジャケットをオフライン用に保存",
-            "取得したジャケットを保存し、接続が無いときも表示できるようにします。",
+        _saveArtworkItem = Toggle(
+            Strings.SaveArtworkOffline,
+            Strings.SaveArtworkOfflineTip,
             _settings.KeepArtworkCache,
             value =>
             {
                 _settings.KeepArtworkCache = value;
                 if (_artwork is not null)
                     _artwork.KeepCache = value;
-            }));
+            });
+        menu.Items.Add(_saveArtworkItem);
 
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("終了", null, (_, _) => ExitApplication());
+
+        _languageMenu = new ToolStripMenuItem(Strings.LanguageMenu);
+        _englishItem = LanguageItem(UiLanguage.English, "English");
+        _japaneseItem = LanguageItem(UiLanguage.Japanese, "日本語");
+        _languageMenu.DropDownItems.Add(_englishItem);
+        _languageMenu.DropDownItems.Add(_japaneseItem);
+        menu.Items.Add(_languageMenu);
+
+        ApplyDropDownTheme(_sourceMenu.DropDown, menuRenderer);
+        ApplyDropDownTheme(_languageMenu.DropDown, menuRenderer);
+
+        menu.Items.Add(new ToolStripSeparator());
+        _exitItem = new ToolStripMenuItem(Strings.Exit);
+        _exitItem.Click += (_, _) => ExitApplication();
+        menu.Items.Add(_exitItem);
 
         UpdateSourceChecks();
+        UpdateLanguageChecks();
 
         var icon = LoadAppIcon();
         Icon = icon;
@@ -202,6 +333,109 @@ internal sealed class BridgeForm : Form
     {
         foreach (var item in _sourceItems)
             item.Checked = (MetadataSource)item.Tag! == _settings.MetadataSource;
+    }
+
+    private ToolStripMenuItem LanguageItem(UiLanguage language, string text)
+    {
+        var item = new ToolStripMenuItem(text) { Tag = language };
+        item.Click += (_, _) =>
+        {
+            if (_settings.Language == language)
+                return;
+
+            _settings.Language = language;
+            _settings.Save();
+            Strings.Apply(language);
+            ApplyLanguage();
+            UpdateLanguageChecks();
+            Write($"ui language: {language}");
+        };
+
+        return item;
+    }
+
+    private void UpdateLanguageChecks()
+    {
+        _englishItem.Checked = _settings.Language == UiLanguage.English;
+        _japaneseItem.Checked = _settings.Language == UiLanguage.Japanese;
+    }
+
+    private void ApplyLanguage()
+    {
+        _logTitle.Text = Strings.LogTitle;
+        _logHint.Text = Strings.LogHint;
+        UpdateChromeAccessibility();
+
+        _showLogItem.Text = Strings.ShowLog;
+        _sourceMenu.Text = Strings.SourceMenu;
+        _restartItem.Text = Strings.RestartWithDebugPort;
+        _relaunchItem.Text = Strings.AlwaysRunWithDebugPort;
+        _relaunchItem.ToolTipText = Strings.AlwaysRunWithDebugPortTip;
+        _sessionPriorityItem.Text = Strings.SessionPriority;
+        _sessionPriorityItem.ToolTipText = Strings.SessionPriorityTip;
+        _hideNotificationsItem.Text = Strings.HideTrackChangeNotifications;
+        _hideNotificationsItem.ToolTipText = Strings.HideTrackChangeNotificationsTip;
+        _saveArtworkItem.Text = Strings.SaveArtworkOffline;
+        _saveArtworkItem.ToolTipText = Strings.SaveArtworkOfflineTip;
+        _languageMenu.Text = Strings.LanguageMenu;
+        _exitItem.Text = Strings.Exit;
+
+        foreach (var item in _sourceItems)
+        {
+            switch ((MetadataSource)item.Tag!)
+            {
+                case MetadataSource.Auto:
+                    item.Text = Strings.SourceAuto;
+                    item.ToolTipText = Strings.SourceAutoTip;
+                    break;
+
+                case MetadataSource.Cdp:
+                    item.Text = Strings.SourceCdp;
+                    item.ToolTipText = Strings.SourceCdpTip;
+                    break;
+
+                case MetadataSource.Notification:
+                    item.Text = Strings.SourceNotification;
+                    item.ToolTipText = Strings.SourceNotificationTip;
+                    break;
+            }
+        }
+    }
+
+    private static void ApplyDropDownTheme(ToolStripDropDown dropDown, ToolStripRenderer renderer)
+    {
+        dropDown.Renderer = renderer;
+        dropDown.BackColor = Theme.Surface;
+        dropDown.ForeColor = Theme.Text;
+        dropDown.Font = Theme.BodyFont;
+        dropDown.Padding = new Padding(4, 6, 4, 6);
+        dropDown.DropShadowEnabled = true;
+
+        if (dropDown is ToolStripDropDownMenu dropDownMenu)
+        {
+            dropDownMenu.ShowImageMargin = false;
+            dropDownMenu.ShowCheckMargin = true;
+        }
+    }
+
+    private void UpdateChromeAccessibility()
+    {
+        if (_log is not null)
+            _log.AccessibleName = Strings.LogTitle;
+
+        MinimizeButton.AccessibleName = Strings.MinimizeWindow;
+        MaximizeButton.AccessibleName = WindowState == FormWindowState.Maximized
+            ? Strings.RestoreWindow
+            : Strings.MaximizeWindow;
+        CloseButton.AccessibleName = Strings.CloseWindow;
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+
+        if (_log is not null)
+            UpdateChromeAccessibility();
     }
 
     private ToolStripMenuItem Toggle(string text, string tooltip, bool initial, Action<bool> onChanged)
@@ -307,6 +541,7 @@ internal sealed class BridgeForm : Form
 
             _amazon = new AmazonSessionWatcher(Write);
             _amazon.PlaybackStatusChanged += OnAmazonPlaybackStatusChanged;
+            _amazon.CurrentSessionChanged += OnCurrentSessionChanged;
             await _amazon.StartAsync();
 
             _cdp = new CdpWatcher(Write);
@@ -408,6 +643,10 @@ internal sealed class BridgeForm : Form
             // ahead of the CDP-only work below. This only detects Amazon Music
             // starting; an exit arrives from Process.Exited within a moment.
             _processes.Poll();
+
+            // Independent of the metadata source: Windows can hand the current
+            // session to Amazon Music in either mode.
+            _ = ReassertCurrentSessionIfNeededAsync();
 
             if (!UsesCdp || _cdp is null)
                 return;
@@ -557,6 +796,8 @@ internal sealed class BridgeForm : Form
         if (_publisher is null)
             return;
 
+        _publishing = true;
+        await _publishGate.WaitAsync();
         try
         {
             await _publisher.UpdateAsync(track);
@@ -584,10 +825,77 @@ internal sealed class BridgeForm : Form
         {
             Write($"!! publish failed: {ex.Message}");
         }
+        finally
+        {
+            _publishGate.Release();
+            _publishing = false;
+        }
+
+        // A track change is when Amazon Music most often grabs the current-session
+        // slot. Check right after publishing instead of waiting for the next tick.
+        _ = ReassertCurrentSessionIfNeededAsync();
     }
 
     private void OnAmazonPlaybackStatusChanged(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status) =>
         BeginInvoke(() => ApplyPlaybackStatus(status));
+
+    private void OnCurrentSessionChanged() =>
+        PostToUi(() => _ = ReassertCurrentSessionIfNeededAsync());
+
+    /// <summary>
+    /// Windows has no setter for the current SMTC session, so the only lever is to
+    /// register ours again. Do that only when Amazon Music actually holds the slot,
+    /// otherwise this would steal focus from unrelated players.
+    /// </summary>
+    private async Task ReassertCurrentSessionIfNeededAsync()
+    {
+        if (!_settings.SessionPriority || _exiting || _reasserting || _publishing ||
+            _publisher is not { IsEnabled: true } publisher)
+            return;
+
+        if (_currentTrack is not { } track || !_processes.IsRunning || _processes.IsRelaunching)
+            return;
+
+        if (DateTime.UtcNow - _lastSessionReassertUtc < SessionReassertCooldown)
+            return;
+
+        if (!_amazon.IsAmazonMusicCurrent())
+            return;
+
+        _reasserting = true;
+        _lastSessionReassertUtc = DateTime.UtcNow;
+        await _publishGate.WaitAsync();
+
+        try
+        {
+            Write("Amazon Music owns the current SMTC session; re-registering the bridge session");
+            await publisher.ReassertAsync(track);
+
+            if (!_processes.IsRunning)
+            {
+                ClearSession("Amazon Music exited while the SMTC session was being re-registered");
+                return;
+            }
+
+            ApplyPlaybackStatus(_amazon.GetPlaybackStatus());
+
+            if (!_amazon.IsPresent)
+                return;
+
+            var duration = track.Duration ?? DurationLookup.Find(track);
+            publisher.BeginTrack(duration);
+            Write("bridge SMTC session re-registered");
+        }
+        catch (Exception ex)
+        {
+            Write($"!! session re-register failed: {ex.Message}");
+        }
+        finally
+        {
+            _publishGate.Release();
+            _reasserting = false;
+        }
+    }
 
     private void ApplyPlaybackStatus(GlobalSystemMediaTransportControlsSessionPlaybackStatus? status)
     {

@@ -147,6 +147,39 @@ internal sealed class SmtcPublisher : IDisposable
         _log($"published: {track}{(thumbnail is null ? " (no artwork)" : string.Empty)}");
     }
 
+    /// <summary>
+    /// Takes the session down and publishes it again. Windows has no API to select
+    /// the current session, so a fresh registration is the only way to make the
+    /// bridge the most recently active source again.
+    /// </summary>
+    public async Task ReassertAsync(TrackInfo track)
+    {
+        try
+        {
+            _controls.IsEnabled = false;
+            _controls.PlaybackStatus = MediaPlaybackStatus.Closed;
+
+            _controls.DisplayUpdater.ClearAll();
+            _controls.DisplayUpdater.Update();
+        }
+        catch (Exception ex)
+        {
+            // Keep going: publishing below re-enables the controls, so a failed
+            // clear must not leave the bridge with no session at all.
+            _log($"session reset failed: {ex.Message}");
+        }
+
+        _duration = null;
+        _elapsedBeforeResume = TimeSpan.Zero;
+        _playingSinceUtc = null;
+
+        // Give Windows a moment to observe the session going away. Otherwise the
+        // disable/enable pair can be coalesced and the priority order never moves.
+        await Task.Delay(400);
+
+        await UpdateAsync(track);
+    }
+
     public void Clear()
     {
         _controls.DisplayUpdater.ClearAll();

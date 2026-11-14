@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="ShowLog" xml:space="preserve">
+    <value>ログを表示</value>
+  </data>
+  <data name="SourceMenu" xml:space="preserve">
+    <value>曲情報の取得方式</value>
+  </data>
+  <data name="SourceAuto" xml:space="preserve">
+    <value>自動</value>
+  </data>
+  <data name="SourceAutoTip" xml:space="preserve">
+    <value>デバッグポートが使えるときは CDP、使えないときは通知から取得します。</value>
+  </data>
+  <data name="SourceCdp" xml:space="preserve">
+    <value>デバッグポートのみ</value>
+  </data>
+  <data name="SourceCdpTip" xml:space="preserve">
+    <value>通知を一切使いません。通知へのアクセス許可も要求しません。</value>
+  </data>
+  <data name="SourceNotification" xml:space="preserve">
+    <value>通知のみ</value>
+  </data>
+  <data name="SourceNotificationTip" xml:space="preserve">
+    <value>Amazon Music を再起動せず、デバッグポートも開きません。Amazon Music にフォーカス中は曲情報が更新されません。</value>
+  </data>
+  <data name="RestartWithDebugPort" xml:space="preserve">
+    <value>デバッグポート付きで再起動</value>
+  </data>
+  <data name="AlwaysRunWithDebugPort" xml:space="preserve">
+    <value>常にデバッグポート付きで動かす</value>
+  </data>
+  <data name="AlwaysRunWithDebugPortTip" xml:space="preserve">
+    <value>デバッグポート無しで動いている Amazon Music を見つけたら起動し直します。手動起動した場合も対象です。</value>
+  </data>
+  <data name="SessionPriority" xml:space="preserve">
+    <value>セッションの優先順位</value>
+  </data>
+  <data name="SessionPriorityTip" xml:space="preserve">
+    <value>Amazon Music が現在の SMTC セッションを奪ったとき、ブリッジを再登録します。メディア表示が一瞬ちらつくことがあります。</value>
+  </data>
+  <data name="HideTrackChangeNotifications" xml:space="preserve">
+    <value>Amazon Music の曲変更通知を非表示</value>
+  </data>
+  <data name="HideTrackChangeNotificationsTip" xml:space="preserve">
+    <value>Amazon Music の曲変更通知を非表示にして、通知センターにも表示しない。</value>
+  </data>
+  <data name="SaveArtworkOffline" xml:space="preserve">
+    <value>ジャケットをオフライン用に保存</value>
+  </data>
+  <data name="SaveArtworkOfflineTip" xml:space="preserve">
+    <value>取得したジャケットを保存し、接続が無いときも表示できるようにします。</value>
+  </data>
+  <data name="LanguageMenu" xml:space="preserve">
+    <value>言語</value>
+  </data>
+  <data name="Exit" xml:space="preserve">
+    <value>終了</value>
+  </data>
+  <data name="LogTitle" xml:space="preserve">
+    <value>アクティビティ ログ</value>
+  </data>
+  <data name="LogHint" xml:space="preserve">
+    <value>このウィンドウを閉じても、ブリッジはトレイで動作を続けます。</value>
+  </data>
+  <data name="MinimizeWindow" xml:space="preserve">
+    <value>最小化</value>
+  </data>
+  <data name="MaximizeWindow" xml:space="preserve">
+    <value>最大化</value>
+  </data>
+  <data name="RestoreWindow" xml:space="preserve">
+    <value>元に戻す</value>
+  </data>
+  <data name="CloseWindow" xml:space="preserve">
+    <value>閉じる</value>
+  </data>
+</root>
