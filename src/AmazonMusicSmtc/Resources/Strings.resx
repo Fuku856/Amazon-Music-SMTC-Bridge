@@ -115,4 +115,22 @@
   <data name="Exit" xml:space="preserve">
     <value>Exit</value>
   </data>
+  <data name="LogTitle" xml:space="preserve">
+    <value>Activity log</value>
+  </data>
+  <data name="LogHint" xml:space="preserve">
+    <value>Closing this window keeps the bridge running in the tray.</value>
+  </data>
+  <data name="MinimizeWindow" xml:space="preserve">
+    <value>Minimize</value>
+  </data>
+  <data name="MaximizeWindow" xml:space="preserve">
+    <value>Maximize</value>
+  </data>
+  <data name="RestoreWindow" xml:space="preserve">
+    <value>Restore</value>
+  </data>
+  <data name="CloseWindow" xml:space="preserve">
+    <value>Close</value>
+  </data>
 </root>

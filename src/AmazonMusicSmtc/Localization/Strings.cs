@@ -46,6 +46,18 @@ internal static class Strings
 
     public static string Exit => Get(nameof(Exit));
 
+    public static string LogTitle => Get(nameof(LogTitle));
+
+    public static string LogHint => Get(nameof(LogHint));
+
+    public static string MinimizeWindow => Get(nameof(MinimizeWindow));
+
+    public static string MaximizeWindow => Get(nameof(MaximizeWindow));
+
+    public static string RestoreWindow => Get(nameof(RestoreWindow));
+
+    public static string CloseWindow => Get(nameof(CloseWindow));
+
     public static void Apply(UiLanguage language)
     {
         var culture = CultureInfo.GetCultureInfo(language == UiLanguage.Japanese ? "ja" : "en");

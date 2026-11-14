@@ -115,4 +115,22 @@
   <data name="Exit" xml:space="preserve">
     <value>終了</value>
   </data>
+  <data name="LogTitle" xml:space="preserve">
+    <value>アクティビティ ログ</value>
+  </data>
+  <data name="LogHint" xml:space="preserve">
+    <value>このウィンドウを閉じても、ブリッジはトレイで動作を続けます。</value>
+  </data>
+  <data name="MinimizeWindow" xml:space="preserve">
+    <value>最小化</value>
+  </data>
+  <data name="MaximizeWindow" xml:space="preserve">
+    <value>最大化</value>
+  </data>
+  <data name="RestoreWindow" xml:space="preserve">
+    <value>元に戻す</value>
+  </data>
+  <data name="CloseWindow" xml:space="preserve">
+    <value>閉じる</value>
+  </data>
 </root>

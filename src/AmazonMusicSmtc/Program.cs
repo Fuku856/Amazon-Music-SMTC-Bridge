@@ -1,4 +1,5 @@
 using AmazonMusicSmtc.Localization;
+using AmazonMusicSmtc.UI;
 using Windows.Media;
 using Windows.Media.Control;
 
@@ -43,7 +44,7 @@ internal static class Program
 /// Hidden host window. SMTC is acquired per-HWND, so the bridge needs a real
 /// window even though it never shows one during normal operation.
 /// </summary>
-internal sealed class BridgeForm : Form
+internal sealed class BridgeForm : DarkChromeForm
 {
     /// <summary>
     /// How long a manual restart is given before the process watcher is allowed to
@@ -59,7 +60,9 @@ internal sealed class BridgeForm : Form
     /// </summary>
     private static readonly TimeSpan SessionReassertCooldown = TimeSpan.FromSeconds(10);
 
-    private readonly TextBox _log;
+    private readonly DarkLogBox _log;
+    private readonly Label _logTitle;
+    private readonly Label _logHint;
     private readonly NotifyIcon _tray;
     private readonly Settings _settings;
     private readonly ToolStripMenuItem[] _sourceItems;
@@ -103,33 +106,100 @@ internal sealed class BridgeForm : Form
     public BridgeForm()
     {
         Text = Program.AppName;
-        Width = 1000;
-        Height = 560;
+        ClientSize = new Size(1000, 620);
         // A normal taskbar window: the log can be minimised and restored like
         // anything else. It simply starts hidden - see SetVisibleCore.
         ShowInTaskbar = true;
         StartPosition = FormStartPosition.CenterScreen;
-
-        _log = new TextBox
-        {
-            Multiline = true,
-            ReadOnly = true,
-            Dock = DockStyle.Fill,
-            ScrollBars = ScrollBars.Both,
-            WordWrap = false,
-            Font = new Font("Consolas", 9f),
-        };
-        Controls.Add(_log);
+        MinimumSize = new Size(760, 460);
 
         _settings = Settings.Load();
         Strings.Apply(_settings.Language);
+
+        _logTitle = new Label
+        {
+            Text = Strings.LogTitle,
+            Dock = DockStyle.Fill,
+            Font = Theme.CaptionFont,
+            ForeColor = Theme.TextMuted,
+            BackColor = Theme.LogBackground,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Margin = Padding.Empty,
+        };
+
+        _log = new DarkLogBox
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 4, 0, 0),
+            AccessibleName = Strings.LogTitle,
+        };
+
+        var cardLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Theme.LogBackground,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+        };
+        cardLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        cardLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        cardLayout.Controls.Add(_logTitle, 0, 0);
+        cardLayout.Controls.Add(_log, 0, 1);
+
+        var card = new RoundedPanel
+        {
+            Dock = DockStyle.Fill,
+            FillColor = Theme.LogBackground,
+            StrokeColor = Theme.BorderSoft,
+            CornerRadius = 12,
+            Padding = new Padding(16, 12, 16, 16),
+        };
+        card.Controls.Add(cardLayout);
+
+        _logHint = new Label
+        {
+            Text = Strings.LogHint,
+            Dock = DockStyle.Bottom,
+            Height = 30,
+            Font = Theme.BodyFont,
+            ForeColor = Theme.TextMuted,
+            BackColor = Theme.Background,
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+
+        var content = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Theme.Background,
+            Padding = new Padding(20, 12, 20, 16),
+        };
+        content.Controls.Add(card);
+        content.Controls.Add(_logHint);
+        Controls.Add(content);
+
+        UpdateChromeAccessibility();
 
         // Built here rather than in InitializeAsync so PublishTrack can never see a
         // null gate. It reports "not running" until the first poll, which is the
         // safe direction to be wrong in.
         _processes = new AmazonProcessWatcher(Write, PostToUi);
 
-        var menu = new ContextMenuStrip();
+        var menuRenderer = new DarkMenuRenderer();
+        ToolStripManager.Renderer = menuRenderer;
+
+        var menu = new ContextMenuStrip
+        {
+            Renderer = menuRenderer,
+            BackColor = Theme.Surface,
+            ForeColor = Theme.Text,
+            Font = Theme.BodyFont,
+            ShowImageMargin = false,
+            ShowCheckMargin = true,
+            ShowItemToolTips = true,
+            Padding = new Padding(4, 6, 4, 6),
+        };
 
         _showLogItem = new ToolStripMenuItem(Strings.ShowLog);
         _showLogItem.Click += (_, _) => ShowLog();
@@ -214,6 +284,9 @@ internal sealed class BridgeForm : Form
         _languageMenu.DropDownItems.Add(_japaneseItem);
         menu.Items.Add(_languageMenu);
 
+        ApplyDropDownTheme(_sourceMenu.DropDown, menuRenderer);
+        ApplyDropDownTheme(_languageMenu.DropDown, menuRenderer);
+
         menu.Items.Add(new ToolStripSeparator());
         _exitItem = new ToolStripMenuItem(Strings.Exit);
         _exitItem.Click += (_, _) => ExitApplication();
@@ -289,6 +362,10 @@ internal sealed class BridgeForm : Form
 
     private void ApplyLanguage()
     {
+        _logTitle.Text = Strings.LogTitle;
+        _logHint.Text = Strings.LogHint;
+        UpdateChromeAccessibility();
+
         _showLogItem.Text = Strings.ShowLog;
         _sourceMenu.Text = Strings.SourceMenu;
         _restartItem.Text = Strings.RestartWithDebugPort;
@@ -323,6 +400,42 @@ internal sealed class BridgeForm : Form
                     break;
             }
         }
+    }
+
+    private static void ApplyDropDownTheme(ToolStripDropDown dropDown, ToolStripRenderer renderer)
+    {
+        dropDown.Renderer = renderer;
+        dropDown.BackColor = Theme.Surface;
+        dropDown.ForeColor = Theme.Text;
+        dropDown.Font = Theme.BodyFont;
+        dropDown.Padding = new Padding(4, 6, 4, 6);
+        dropDown.DropShadowEnabled = true;
+
+        if (dropDown is ToolStripDropDownMenu dropDownMenu)
+        {
+            dropDownMenu.ShowImageMargin = false;
+            dropDownMenu.ShowCheckMargin = true;
+        }
+    }
+
+    private void UpdateChromeAccessibility()
+    {
+        if (_log is not null)
+            _log.AccessibleName = Strings.LogTitle;
+
+        MinimizeButton.AccessibleName = Strings.MinimizeWindow;
+        MaximizeButton.AccessibleName = WindowState == FormWindowState.Maximized
+            ? Strings.RestoreWindow
+            : Strings.MaximizeWindow;
+        CloseButton.AccessibleName = Strings.CloseWindow;
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+
+        if (_log is not null)
+            UpdateChromeAccessibility();
     }
 
     private ToolStripMenuItem Toggle(string text, string tooltip, bool initial, Action<bool> onChanged)
